@@ -1,0 +1,16 @@
+/vendor
+/bin
+/.gopath
+/docs/node_modules
+/www/kwm
+/test/tests.*
+/test/coverage.*
+/golint.txt
+/govet.txt
+/dist
+/Caddyfile
+/*.key
+/*.log
+/3rdparty-LICENSES.md
+/.vscode
+/registration.yaml
