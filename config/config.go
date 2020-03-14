@@ -20,7 +20,7 @@ type Config struct {
 	WithMetrics       bool
 	MetricsListenAddr string
 
-	Client *http.Client
+	HTTPClient *http.Client
 
 	Iss *url.URL
 
@@ -28,4 +28,10 @@ type Config struct {
 
 	Metrics prometheus.Registerer
 	Survey  prometheus.Registerer
+
+	KWMServerURIs []*url.URL
+
+	ICEInterfaces            []string
+	ICENetworkTypes          []string
+	ICEEphemeralUDPPortRange [2]uint16
 }

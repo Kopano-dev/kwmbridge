@@ -15,10 +15,13 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"stash.kopano.io/kgol/ksurveyclient-go/autosurvey"
 	"stash.kopano.io/kgol/ksurveyclient-go/prometrics"
@@ -50,6 +53,10 @@ func commandServe() *cobra.Command {
 	serveCmd.Flags().String("pprof-listen", "127.0.0.1:6060", "TCP listen address for pprof")
 	serveCmd.Flags().Bool("with-metrics", false, "Enable metrics")
 	serveCmd.Flags().String("metrics-listen", "127.0.0.1:6779", "TCP listen address for metrics")
+	serveCmd.Flags().StringArray("kwmserver-url", []string{"http://127.0.0.1:8778/"}, "URL of kwmserver to connect, defaults to http://127.0.0.1:8778/")
+	serveCmd.Flags().StringArray("use-ice-if", nil, "Interface to use when gathering ICE candidates, all interfaces will be used if not set")
+	serveCmd.Flags().StringArray("use-ice-network-type", nil, "ICE network type supported when gathering candidates, if not set all types (udp4, udp6, tcp4, tcp6) are enabled")
+	serveCmd.Flags().String("use-ice-udp-port-range", "", "Range of ephemeral ports that ICE UDP connections can allocate from in format min:max, if not set its not limited")
 
 	return serveCmd
 }
@@ -78,7 +85,7 @@ func serve(cmd *cobra.Command, args []string) error {
 	if issString, errIf := cmd.Flags().GetString("iss"); errIf == nil && issString != "" {
 		config.Iss, errIf = url.Parse(issString)
 		if errIf != nil {
-			return fmt.Errorf("invalid iss url: %v", errIf)
+			return fmt.Errorf("invalid iss url: %w", errIf)
 		}
 	}
 
@@ -91,6 +98,58 @@ func serve(cmd *cobra.Command, args []string) error {
 	}
 	config.ListenAddr = listenAddr
 
+	if kwmServerURLStrings, _ := cmd.Flags().GetStringArray("kwmserver-url"); kwmServerURLStrings != nil {
+		config.KWMServerURIs = make([]*url.URL, 0)
+		for _, uriString := range kwmServerURLStrings {
+			u, uriErr := url.Parse(uriString)
+			if uriErr != nil {
+				return fmt.Errorf("invalid kwmserver-url: %w", uriErr)
+			}
+			u.Path = strings.TrimRight(u.Path, "/") // Always trim trailing slash to simplify url generation later.
+			config.KWMServerURIs = append(config.KWMServerURIs, u)
+		}
+	}
+	if len(config.KWMServerURIs) == 0 {
+		return fmt.Errorf("kwmserver-uri required but not given")
+	}
+	if len(config.KWMServerURIs) > 1 {
+		return fmt.Errorf("multiple kwmserver-uris are not supported yet, sorry")
+	}
+
+	if ICEInterfaceStrings, _ := cmd.Flags().GetStringArray("use-ice-if"); ICEInterfaceStrings != nil {
+		config.ICEInterfaces = ICEInterfaceStrings
+		logger.WithField("interfaces", config.ICEInterfaces).Infoln("limiting ICE interfaces")
+	}
+	if ICENetworkTypeStrings, _ := cmd.Flags().GetStringArray("use-ice-network-type"); ICENetworkTypeStrings != nil {
+		config.ICENetworkTypes = ICENetworkTypeStrings
+		logger.WithField("types", config.ICENetworkTypes).Infoln("limiting ICE network types")
+	}
+	if ICEEphemeralUDPPortRangeString, _ := cmd.Flags().GetString("use-ice-udp-port-range"); ICEEphemeralUDPPortRangeString != "" {
+		ICEEphemeralUDPPortRangeMinMaxStrings := strings.SplitN(ICEEphemeralUDPPortRangeString, ":", 2)
+		config.ICEEphemeralUDPPortRange = [2]uint16{10000, ^uint16(0)}
+		if ICEEphemeralUDPPortRangeMinMaxStrings[0] != "" {
+			if minPort, portErr := strconv.ParseUint(ICEEphemeralUDPPortRangeMinMaxStrings[0], 10, 16); portErr != nil {
+				return fmt.Errorf("invalid min port value in use-ice-udp-port-range: %w", portErr)
+			} else {
+				config.ICEEphemeralUDPPortRange[0] = uint16(minPort)
+			}
+		}
+		if len(ICEEphemeralUDPPortRangeMinMaxStrings) > 1 && ICEEphemeralUDPPortRangeMinMaxStrings[1] != "" {
+			if maxPort, portErr := strconv.ParseUint(ICEEphemeralUDPPortRangeMinMaxStrings[1], 10, 16); portErr != nil {
+				return fmt.Errorf("invalid max port value in use-ice-udp-port-range: %w", portErr)
+			} else {
+				if maxPort <= uint64(config.ICEEphemeralUDPPortRange[0]) {
+					return fmt.Errorf("max port value in use-ice-udp-port-range must be higher than min port %d", config.ICEEphemeralUDPPortRange[0])
+				}
+				config.ICEEphemeralUDPPortRange[1] = uint16(maxPort)
+			}
+		}
+		logger.WithFields(logrus.Fields{
+			"min": config.ICEEphemeralUDPPortRange[0],
+			"max": config.ICEEphemeralUDPPortRange[1],
+		}).Infoln("limiting ICE port range")
+	}
+
 	var tlsClientConfig *tls.Config
 	tlsInsecureSkipVerify, _ := cmd.Flags().GetBool("insecure")
 	if tlsInsecureSkipVerify {
@@ -101,8 +160,7 @@ func serve(cmd *cobra.Command, args []string) error {
 		logger.Warnln("insecure mode, TLS client connections are susceptible to man-in-the-middle attacks")
 		logger.Debugln("http2 client support is disabled (insecure mode)")
 	}
-	config.Client = &http.Client{
-		Timeout: 60 * time.Second,
+	config.HTTPClient = &http.Client{
 		Transport: &http.Transport{
 			DialContext: (&net.Dialer{
 				Timeout:   30 * time.Second,

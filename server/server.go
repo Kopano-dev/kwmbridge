@@ -7,11 +7,13 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -22,6 +24,7 @@ import (
 	kcoidc "stash.kopano.io/kc/libkcoidc"
 
 	cfg "stash.kopano.io/kwm/kwmbridge/config"
+	"stash.kopano.io/kwm/kwmbridge/internal/kwmclient"
 )
 
 // Server is our HTTP server implementation.
@@ -47,7 +50,7 @@ func NewServer(c *cfg.Config) (*Server, error) {
 }
 
 // WithMetrics adds metrics logging to the provided http.Handler. When the
-// handler is done, the context is cancelled, logging metrics.
+// handler is done, the context is canceled, logging metrics.
 func (s *Server) WithMetrics(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		// Create per request cancel context.
@@ -123,9 +126,9 @@ func (s *Server) Serve(ctx context.Context) error {
 		}
 
 		if kcoidcLogger != nil {
-			oidcp, err = kcoidc.NewProvider(s.config.Client, kcoidcLogger, kcoidcDebug)
+			oidcp, err = kcoidc.NewProvider(s.config.HTTPClient, kcoidcLogger, kcoidcDebug)
 		} else {
-			oidcp, err = kcoidc.NewProvider(s.config.Client, nil, kcoidcDebug)
+			oidcp, err = kcoidc.NewProvider(s.config.HTTPClient, nil, kcoidcDebug)
 		}
 		if err != nil {
 			return fmt.Errorf("failed to create kcoidc provider for server: %v", err)
@@ -150,7 +153,7 @@ func (s *Server) Serve(ctx context.Context) error {
 
 	errCh := make(chan error, 2)
 	exitCh := make(chan bool, 1)
-	signalCh := make(chan os.Signal)
+	signalCh := make(chan os.Signal, 1)
 
 	// HTTP listener.
 	logger.WithField("listenAddr", s.listenAddr).Infoln("starting http listener")
@@ -158,16 +161,65 @@ func (s *Server) Serve(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	wg := &sync.WaitGroup{}
+
 	srv := &http.Server{
 		Handler: s.AddContext(serveCtx, router),
 	}
+	wg.Add(1)
 	go func() {
+		defer func() {
+			logger.Debugln("http listener stopped")
+			wg.Done()
+		}()
+
 		serveErr := srv.Serve(listener)
 		if serveErr != nil {
 			errCh <- serveErr
 		}
+	}()
 
-		logger.Debugln("http listener stopped")
+	wg.Add(1)
+	go func() {
+		defer func() {
+			logger.Debugln("kwm mcu connector stopped")
+			wg.Done()
+		}()
+
+		// TODO(longsleep): Add configuration for kwmserver address.
+		uri := s.config.KWMServerURIs[0]
+		logger.WithField("url", uri).Infoln("creating kwm mcu client")
+		kwm, kwmErr := kwmclient.New(uri, &kwmclient.Config{
+			Config: s.config,
+
+			HTTPClient: s.config.HTTPClient,
+			Logger:     s.config.Logger,
+		})
+		if kwmErr != nil {
+			errCh <- kwmErr
+			return
+		}
+
+		// Connect and reconnect (this blocks.)
+		logger.WithField("url", uri).Infoln("connecting to kwm mcu API")
+		for {
+			kwmErr = kwm.MCU.Start(serveCtx)
+			if kwmErr != nil && !errors.Is(kwmErr, context.Canceled) {
+				logger.WithError(kwmErr).Debugln("kwm mcu connection stopped with error, restart scheduled")
+			}
+			select {
+			case <-serveCtx.Done():
+				return
+			case <-time.After(1 * time.Second):
+				logger.Infoln("reconnecting to kwm mcu API")
+				// breaks and continues.
+			}
+		}
+	}()
+
+	go func() {
+		wg.Wait()
 		close(exitCh)
 	}()
 
@@ -182,10 +234,34 @@ func (s *Server) Serve(ctx context.Context) error {
 		logger.WithField("signal", reason).Warnln("received signal")
 		// breaks
 	}
-	logger.Infoln("clean server shutdown")
+
+	// Shutdown, server will stop to accept new connections, requires Go 1.8+.
+	logger.Infoln("clean server shutdown start")
+	shutDownCtx, shutDownCtxCancel := context.WithTimeout(ctx, 10*time.Second)
+	if shutdownErr := srv.Shutdown(shutDownCtx); shutdownErr != nil {
+		logger.WithError(shutdownErr).Warn("clean server shutdown failed")
+	}
 
 	// Cancel our own context, wait on managers.
 	serveCtxCancel()
+	func() {
+		for {
+			select {
+			case <-exitCh:
+				return
+			default:
+				logger.Info("waiting for services to exit")
+			}
+
+			select {
+			case reason := <-signalCh:
+				logger.WithField("signal", reason).Warn("received signal")
+				return
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+	}()
+	shutDownCtxCancel() // prevent leak.
 
 	return err
 }
