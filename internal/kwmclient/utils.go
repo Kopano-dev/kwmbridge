@@ -7,10 +7,12 @@ package kwmclient
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"math/big"
 	"net/url"
 
 	"github.com/rogpeppe/fastuuid"
+	"stash.kopano.io/kgol/rndm"
 )
 
 var guidGenerator = fastuuid.MustNewGenerator()
@@ -53,4 +55,8 @@ func newRandomUint32() uint32 {
 	}
 
 	return uint32(n.Uint64())
+}
+
+func newRandomString(n int) string {
+	return base64.RawURLEncoding.EncodeToString(rndm.GenerateRandomBytes(base64.RawURLEncoding.DecodedLen(n)))
 }

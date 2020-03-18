@@ -21,7 +21,6 @@ import (
 	"github.com/pion/webrtc/v2"
 	"github.com/sirupsen/logrus"
 	"nhooyr.io/websocket"
-	"stash.kopano.io/kgol/rndm"
 	api "stash.kopano.io/kwm/kwmserver/signaling/api-v1"
 
 	"stash.kopano.io/kwm/kwmbridge/internal/bpool"
@@ -450,14 +449,15 @@ func NewRTMChannelSFUChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*R
 				remove := trackRecord.remove
 
 				index++
+				track := trackRecord.track
+
 				logger = channel.logger.WithFields(logrus.Fields{
-					"source": trackRecord.source.id,
-					"sfu_a":  index,
-					"remove": remove,
+					"source":     trackRecord.source.id,
+					"sfu_a":      index,
+					"remove":     remove,
+					"track_ssrc": track.SSRC(),
 				})
 				logger.Debugln("ooo got local sfu track change")
-
-				track := trackRecord.track
 
 				channel.connections.IterCb(func(target string, record interface{}) {
 					logger.Debugln("ooo sfu selecting", target)
@@ -493,17 +493,16 @@ func NewRTMChannelSFUChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*R
 							"track_label": track.Label(),
 							"track_kind":  track.Kind(),
 							"track_type":  track.PayloadType(),
-							"track_ssrc":  track.SSRC(),
-						}).Debugln("ooo sfu remove track to target")
+						}).Debugln("www ooo sfu remove track to target")
 						sender, haveSender := connectionRecord.senders[track.ID()]
 						if !haveSender {
-							logger.WithField("track_id", track.ID()).Errorln("ooo tried remove sfu track without sender")
+							logger.WithField("track_id", track.ID()).Debugln("www ooo tried remove sfu track without sender, nothing to do")
 							return
 						}
 						delete(connectionRecord.senders, track.ID())
 						delete(connectionRecord.tracks, track.ID())
 						if removeErr := pc.RemoveTrack(sender); removeErr != nil {
-							logger.WithError(removeErr).WithField("track_id", track.ID()).Errorln("ooo remove sfu track from target failed")
+							logger.WithError(removeErr).WithField("track_id", track.ID()).Errorln("www ooo remove sfu track from target failed")
 							return
 						}
 					} else {
@@ -512,19 +511,21 @@ func NewRTMChannelSFUChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*R
 							"track_label": track.Label(),
 							"track_kind":  track.Kind(),
 							"track_type":  track.PayloadType(),
-							"track_ssrc":  track.SSRC(),
-						}).Debugln("ooo sfu add track to target")
-						if sender, addErr := pc.AddTrack(track); addErr != nil {
-							logger.WithError(addErr).WithField("track_id", track.ID()).Errorln("ooo add sfu track to target failed")
+						}).Debugln("www ooo sfu add track to target")
+						transceiverInit := webrtc.RtpTransceiverInit{
+							Direction: webrtc.RTPTransceiverDirectionSendonly,
+						}
+						if transceiver, addErr := pc.AddTransceiverFromTrack(track, transceiverInit); addErr != nil {
+							logger.WithError(addErr).WithField("track_id", track.ID()).Errorln("www ooo add sfu track to target failed")
 							return
 						} else {
 							connectionRecord.tracks[track.ID()] = track
-							connectionRecord.senders[track.ID()] = sender
+							connectionRecord.senders[track.ID()] = transceiver.Sender()
 						}
 					}
 
 					if negotiateErr := channel.negotiationNeeded(connectionRecord); negotiateErr != nil {
-						logger.WithError(negotiateErr).Errorln("ooo failed to trigger sfu update track negotiation, killing sfu channel")
+						logger.WithError(negotiateErr).Errorln("www ooo failed to trigger sfu update track negotiation, killing sfu channel")
 						channel.sfu.Close() // NOTE(longsleep): This is brutal, add dedicated errorchannel or similar.
 						return
 					}
@@ -579,11 +580,11 @@ func NewRTMChannelSFUChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*R
 					senderRecord := record.(*rtmChannelConnectionRecord)
 					senderRecord.RLock()
 					defer senderRecord.RUnlock()
-					logger.Debugln("sss sfu using wanted sender source")
+					logger.Debugln("www sss sfu using wanted sender source")
 
 					addedTrack := false
 					for id, track := range senderRecord.tracks {
-						if _, ok := connectionRecord.tracks[id]; ok {
+						if _, ok := connectionRecord.tracks[track.ID()]; ok {
 							// Avoid adding the same track multiple times.
 							continue
 						}
@@ -595,25 +596,28 @@ func NewRTMChannelSFUChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*R
 							"track_kind":      track.Kind(),
 							"track_type":      track.PayloadType(),
 							"track_ssrc":      track.SSRC(),
-						}).Debugln("sss add sfu track to target")
-						if sender, addErr := pc.AddTrack(track); addErr != nil {
-							logger.WithError(addErr).Errorln("sss add sfu track to target failed")
-							continue
+						}).Debugln("www sss add sfu track to target")
+						transceiverInit := webrtc.RtpTransceiverInit{
+							Direction: webrtc.RTPTransceiverDirectionSendonly,
+						}
+						if transceiver, addErr := pc.AddTransceiverFromTrack(track, transceiverInit); addErr != nil {
+							logger.WithError(addErr).WithField("track_id", track.ID()).Errorln("www sss add sfu track to target failed")
+							return
 						} else {
-							connectionRecord.tracks[id] = track
-							connectionRecord.senders[id] = sender
+							connectionRecord.tracks[track.ID()] = track
+							connectionRecord.senders[track.ID()] = transceiver.Sender()
 							addedTrack = true
 						}
 					}
 
 					if addedTrack {
 						if negotiateErr := channel.negotiationNeeded(connectionRecord); negotiateErr != nil {
-							logger.WithError(negotiateErr).Errorln("sss failed to trigger sfu add track negotiation, killing sfu channel")
+							logger.WithError(negotiateErr).Errorln("www sss failed to trigger sfu add track negotiation, killing sfu channel")
 							channel.sfu.Close() // NOTE(longsleep): This is brutal, add dedicated errorchannel or similar.
 							return
 						}
 					} else {
-						logger.Debugln("sss sfu target is already up to date")
+						logger.Debugln("www sss sfu target is already up to date")
 					}
 				}()
 
@@ -720,15 +724,16 @@ func (channel *RTMChannelSFUChannel) handleWebRTCSignalMessage(message *api.RTMT
 			return fmt.Errorf("uuu failed to create new peer connection: %w", pcErr)
 		} else {
 			if experimentAlwaysAddTransceiverToSender && connectionRecord.pipeline != nil {
+				channel.logger.WithField("pcid", connectionRecord.pcid).Debugln("kkk adding transceivers to sender")
 				// TODO(longsleep): Make recvonly again, investigate if this causes issues.
-				/*transceiverInit := webrtc.RtpTransceiverInit{
+				transceiverInit := webrtc.RtpTransceiverInit{
 					Direction: webrtc.RTPTransceiverDirectionRecvonly,
-				}*/
-				if _, errTransceiver := pc.AddTransceiver(webrtc.RTPCodecTypeAudio); errTransceiver != nil {
-					channel.logger.WithError(errTransceiver).Errorln("error adding transceiver for audio")
 				}
-				if _, errTransceiver := pc.AddTransceiver(webrtc.RTPCodecTypeVideo); errTransceiver != nil {
-					channel.logger.WithError(errTransceiver).Errorln("error adding transceiver for video")
+				if _, errTransceiver := pc.AddTransceiver(webrtc.RTPCodecTypeAudio, transceiverInit); errTransceiver != nil {
+					channel.logger.WithError(errTransceiver).WithField("pcid", connectionRecord.pcid).Errorln("kkk error adding transceiver for audio")
+				}
+				if _, errTransceiver := pc.AddTransceiver(webrtc.RTPCodecTypeVideo, transceiverInit); errTransceiver != nil {
+					channel.logger.WithError(errTransceiver).WithField("pcid", connectionRecord.pcid).Errorln("kkk error adding transceiver for video")
 				}
 			}
 			if experimentAlwaysAddTransceiverWhenInitiator && connectionRecord.initiator {
@@ -800,9 +805,13 @@ func (channel *RTMChannelSFUChannel) handleWebRTCSignalMessage(message *api.RTMT
 		if err = json.Unmarshal(signal.SDP, &sdpString); err != nil {
 			return fmt.Errorf("failed to parse sdp payload: %w", err)
 		}
+		if connectionRecord.pipeline != nil {
+			logger.WithField("pcid", connectionRecord.pcid).Debugln("kkk signal for pipeline", sdpType)
+		}
 		haveRemoteDescription := connectionRecord.pc.CurrentRemoteDescription() != nil
 		if haveRemoteDescription {
-			logger.Debugln(">>> sdp signal while already having remote description set")
+			logger.Debugln(">>> kkk sdp signal while already having remote description set")
+			timeout := time.After(5 * time.Second)
 			for {
 				// NOTE(longsleep): This is a workaround for the problem when the remote descriptions is overwritten
 				// while the underlaying DTLS transport has not started. If this is the best solution or if it better
@@ -810,15 +819,20 @@ func (channel *RTMChannelSFUChannel) handleWebRTCSignalMessage(message *api.RTMT
 				wait := false
 				for _, sender := range connectionRecord.pc.GetSenders() {
 					senderState := sender.Transport().State()
-					logger.Debugln(">>> sdp sender transport state", senderState)
+					logger.Debugln(">>> kkk sdp sender transport state", senderState)
 					if senderState == webrtc.DTLSTransportStateNew {
 						wait = true
 						break
 					}
 				}
 				if wait {
-					logger.Debugln(">>> sdp sender transport not started yet, wait a bit")
+					logger.Debugln(">>> kkk sdp sender transport not started yet, wait a bit")
 					select {
+					case <-timeout:
+						// This did now work, kill stuff.
+						logger.Debugln(">>> kkk sdp sender transport timeout, resetting")
+						connectionRecord.reset(channel.sfu.wsCtx)
+						return fmt.Errorf("timeout while waiting for sender dtls transport")
 					case <-time.After(100 * time.Millisecond):
 						// breaks
 					}
@@ -827,6 +841,7 @@ func (channel *RTMChannelSFUChannel) handleWebRTCSignalMessage(message *api.RTMT
 				}
 			}
 		}
+
 		if err = connectionRecord.pc.SetRemoteDescription(webrtc.SessionDescription{
 			Type: sdpType,
 			SDP:  sdpString,
@@ -843,9 +858,12 @@ func (channel *RTMChannelSFUChannel) handleWebRTCSignalMessage(message *api.RTMT
 
 		if sdpType == webrtc.SDPTypeOffer {
 			// Create answer.
-			logger.WithField("pcid", connectionRecord.pcid).Debugln("offer received from initiator, creating answer")
+			logger.WithFields(logrus.Fields{
+				"pcid":  connectionRecord.pcid,
+				"rpcid": connectionRecord.rpcid,
+			}).Debugln(">>> kkk offer received from initiator, creating answer")
 			if err = channel.createAnswer(connectionRecord, sourceRecord, connectionRecord.state); err != nil {
-				return fmt.Errorf("failed to send answer for offer: %w", err)
+				return fmt.Errorf("failed to create answer for offer: %w", err)
 			}
 		}
 	}
@@ -906,7 +924,7 @@ func (channel *RTMChannelSFUChannel) createSender(sourceRecord *rtmChannelUserRe
 	defaultSenderConnectionRecord.pipeline = channel.pipeline
 	defaultSenderConnectionRecord.state = channel.pipeline.Pipeline
 
-	go func() {
+	func() {
 		defaultSenderConnectionRecord.Lock()
 		defer defaultSenderConnectionRecord.maybeNegotiateAndUnlock()
 
@@ -915,15 +933,16 @@ func (channel *RTMChannelSFUChannel) createSender(sourceRecord *rtmChannelUserRe
 			channel.sfu.Close() // NOTE(longsleep): This is brutal, add dedicated errorchannel or similar.
 		} else {
 			if experimentAlwaysAddTransceiverToSender {
+				channel.logger.WithField("pcid", defaultSenderConnectionRecord.pcid).Debugln("kkk adding transceivers to sender")
 				// TODO(longsleep): Make recvonly again, investigate if this causes issues.
-				/*transceiverInit := webrtc.RtpTransceiverInit{
+				transceiverInit := webrtc.RtpTransceiverInit{
 					Direction: webrtc.RTPTransceiverDirectionRecvonly,
-				}*/
-				if _, errTransceiver := pc.AddTransceiver(webrtc.RTPCodecTypeAudio); errTransceiver != nil {
-					channel.logger.WithError(errTransceiver).Errorln("error adding transceiver for audio")
 				}
-				if _, errTransceiver := pc.AddTransceiver(webrtc.RTPCodecTypeVideo); errTransceiver != nil {
-					channel.logger.WithError(errTransceiver).Errorln("error adding transceiver for video")
+				if _, errTransceiver := pc.AddTransceiver(webrtc.RTPCodecTypeAudio, transceiverInit); errTransceiver != nil {
+					channel.logger.WithError(errTransceiver).WithField("pcid", defaultSenderConnectionRecord.pcid).Errorln("kkk error adding transceiver for audio")
+				}
+				if _, errTransceiver := pc.AddTransceiver(webrtc.RTPCodecTypeVideo, transceiverInit); errTransceiver != nil {
+					channel.logger.WithError(errTransceiver).WithField("pcid", defaultSenderConnectionRecord.pcid).Errorln("kkk error adding transceiver for video")
 				}
 			}
 			channel.logger.WithFields(logrus.Fields{
@@ -948,7 +967,8 @@ func (channel *RTMChannelSFUChannel) createPeerConnection(connectionRecord *rtmC
 		return nil, fmt.Errorf("error creating peer connection: %w", err)
 	}
 
-	pcid := rndm.GenerateRandomString(7)
+	pcid := newRandomString(7)
+	iceComplete := connectionRecord.iceComplete
 
 	logger := channel.logger.WithFields(logrus.Fields{
 		"source": sourceRecord.id,
@@ -974,7 +994,13 @@ func (channel *RTMChannelSFUChannel) createPeerConnection(connectionRecord *rtmC
 		logger.Debugln("ppp onSignalingStateChange", signalingState)
 		if signalingState == webrtc.SignalingStateStable {
 			connectionRecord.Lock()
+			if connectionRecord.pc != pc {
+				// Replaced, do nothing.
+				connectionRecord.Unlock()
+				return
+			}
 			defer connectionRecord.maybeNegotiateAndUnlock()
+
 			if connectionRecord.isNegotiating {
 				connectionRecord.isNegotiating = false
 				logger.Debugln("nnn negotiation complete")
@@ -991,22 +1017,37 @@ func (channel *RTMChannelSFUChannel) createPeerConnection(connectionRecord *rtmC
 	})
 	pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 		//logger.Debugln("ppp onICECandidate", candidate)
-		var candidateInitP *webrtc.ICECandidateInit
-		if candidate != nil {
-			candidateInit := candidate.ToJSON()
-			candidateInitP = &candidateInit
-		} else {
+		if candidate == nil {
 			// ICE complete.
 			logger.Debugln("ppp ICE complete")
-			close(connectionRecord.iceComplete)
+			select {
+			case <-iceComplete:
+				// Huh already complete.
+				// NOTE(longsleep): Something is probably wrong, let's hope it will resolve itself.
+			default:
+				close(iceComplete)
+			}
 			return
 		}
 
-		connectionRecord.Lock()
-		defer connectionRecord.Unlock()
-		if candidateErr := channel.sendCandidate(connectionRecord, sourceRecord, state, candidateInitP); candidateErr != nil {
-			logger.WithError(candidateErr).Errorln("ppp failed to send candidate, killing sfu channel")
-			channel.sfu.Close() // NOTE(longsleep): This is brutal, add dedicated errorchannel or similar.
+		if experimentICETrickle {
+			var candidateInitP *webrtc.ICECandidateInit
+			if candidate != nil {
+				candidateInit := candidate.ToJSON()
+				candidateInitP = &candidateInit
+			}
+
+			connectionRecord.Lock()
+			defer connectionRecord.Unlock()
+			if connectionRecord.pc != pc {
+				// Replaced, do nothing.
+				return
+			}
+
+			if candidateErr := channel.sendCandidate(connectionRecord, sourceRecord, state, candidateInitP); candidateErr != nil {
+				logger.WithError(candidateErr).Errorln("ppp failed to send candidate, killing sfu channel")
+				channel.sfu.Close() // NOTE(longsleep): This is brutal, add dedicated errorchannel or similar.
+			}
 		}
 	})
 	pc.OnConnectionStateChange(func(connectionState webrtc.PeerConnectionState) {
@@ -1021,7 +1062,7 @@ func (channel *RTMChannelSFUChannel) createPeerConnection(connectionRecord *rtmC
 
 				if connectionRecord.pc != nil && connectionRecord.pc != pc {
 					// This connection has been replaced already, do nothing.
-					logger.Debugln("ppp ignored close on different porentially replaced connection", connectionRecord.pc)
+					logger.Debugln("ppp ignored close on different porentially replaced connection")
 					return
 				}
 
@@ -1048,17 +1089,23 @@ func (channel *RTMChannelSFUChannel) createPeerConnection(connectionRecord *rtmC
 		}
 	})
 	pc.OnTrack(func(remoteTrack *webrtc.Track, receiver *webrtc.RTPReceiver) {
-		logger.WithFields(logrus.Fields{
+		trackLogger := logger.WithFields(logrus.Fields{
 			"track_id":    remoteTrack.ID(),
 			"track_label": remoteTrack.Label(),
 			"track_kind":  remoteTrack.Kind(),
 			"track_type":  remoteTrack.PayloadType(),
 			"track_ssrc":  remoteTrack.SSRC(),
-		}).Debugln("ooo onTrack")
+		})
+		trackLogger.Debugln("ttt onTrack")
 		connectionRecord.Lock()
+		if connectionRecord.pc != pc {
+			// Replaced, do nothing.
+			connectionRecord.Unlock()
+			return
+		}
 		if connectionRecord.pipeline == nil {
 			connectionRecord.Unlock()
-			logger.Warnln("ooo received a track but connection is no pipeline, ignoring track")
+			trackLogger.Warnln("ttt received a track but connection is no pipeline, ignoring track")
 			return
 		}
 
@@ -1071,17 +1118,21 @@ func (channel *RTMChannelSFUChannel) createPeerConnection(connectionRecord *rtmC
 			// Video.
 			if _, ok := connectionRecord.tracks["video"]; ok {
 				// XXX(longsleep): What to do here?
-				logger.Warnln("ooo received a video track but already got one, ignoring track")
+				trackLogger.Warnln("ttt received a remote video track but already got one, ignoring track")
+				connectionRecord.Unlock()
 				return
 			}
 
-			//trackID := newRandomGUID()
-			trackID := "vtrack_" + connectionRecord.owner.id
-			videoTrack, trackErr := pc.NewTrack(remoteTrack.PayloadType(), remoteTrack.SSRC(), trackID, connectionRecord.guid)
+			trackSSRC := remoteTrack.SSRC()
+			//trackSSRC := newRandomUint32()
+			trackID := newRandomGUID()
+			//trackID := "vtrack_" + connectionRecord.owner.id
+			videoTrack, trackErr := pc.NewTrack(remoteTrack.PayloadType(), trackSSRC, trackID, connectionRecord.guid)
 			if trackErr != nil {
-				logger.WithError(trackErr).WithField("label", remoteTrack.Label()).Errorln("ooo failed to create new track for video")
+				trackLogger.WithError(trackErr).WithField("label", remoteTrack.Label()).Errorln("ttt failed to create new sfu track for video")
 				return
 			}
+			trackLogger.WithField("sfu_track_ssrc", videoTrack.SSRC()).Debugln("ttt created new sfu video track")
 			connectionRecord.tracks["video"] = videoTrack
 			connectionRecord.Unlock()
 
@@ -1096,7 +1147,7 @@ func (channel *RTMChannelSFUChannel) createPeerConnection(connectionRecord *rtmC
 			rtcpPLIInterval := time.Second * 3 // TODO(longsleep): Move to const, and figure out good value.
 			go func(ctx context.Context) {
 				defer func() {
-					logger.WithField("track_id", trackID).Debugln("sfu track video pli exit")
+					trackLogger.WithField("sfu_track_src", videoTrack.SSRC()).Debugln("ttt sfu track video pli exit")
 				}()
 				ticker := time.NewTicker(rtcpPLIInterval)
 				var writeErr error
@@ -1107,7 +1158,7 @@ func (channel *RTMChannelSFUChannel) createPeerConnection(connectionRecord *rtmC
 					case <-ticker.C:
 						writeErr = pc.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: videoTrack.SSRC()}})
 						if writeErr != nil {
-							logger.WithError(writeErr).WithField("label", remoteTrack.Label()).Errorln("ooo failed to write picture loss indicator")
+							trackLogger.WithError(writeErr).WithField("sfu_track_src", videoTrack.SSRC()).Errorln("ttt failed to write sfu picture loss indicator")
 						}
 					}
 				}
@@ -1120,33 +1171,51 @@ func (channel *RTMChannelSFUChannel) createPeerConnection(connectionRecord *rtmC
 			for {
 				readN, readWriteErr = remoteTrack.Read(rtpBuf)
 				if readWriteErr != nil {
-					logger.WithError(readWriteErr).WithField("label", remoteTrack.Label()).Errorln("ooo failed to read from video track")
+					trackLogger.WithError(readWriteErr).WithField("sfu_track_src", videoTrack.SSRC()).Errorln("ttt failed to read from remote video track")
 					break
 				}
 
 				_, readWriteErr = videoTrack.Write(rtpBuf[:readN])
 				if readWriteErr != nil && readWriteErr != io.ErrClosedPipe { // ErrClosedPipe means we don't have any subscribers.
-					logger.WithError(readWriteErr).WithField("label", remoteTrack.Label()).Errorln("ooo failed to write to video track")
+					trackLogger.WithError(readWriteErr).WithField("sfu_track_src", videoTrack.SSRC()).Errorln("ttt failed to write to sfu video track")
 					break
 				}
 			}
 
-			logger.WithField("track_id", trackID).Debugln("ooo sfu video track pump exit")
+			trackLogger.WithField("sfu_track_src", videoTrack.SSRC()).Debugln("ttt sfu video track pump exit")
+
+			connectionRecord.Lock()
+			defer connectionRecord.maybeNegotiateAndUnlock()
+
+			// Make track unavailable for forwarding.
+			channel.trackCh <- &rtmChannelConnectionTrack{
+				track:      videoTrack,
+				connection: connectionRecord,
+				source:     sourceRecord,
+				remove:     true,
+			}
+
+			delete(connectionRecord.tracks, "video")
 
 		} else {
 			// Audio.
 			if _, ok := connectionRecord.tracks["audio"]; ok {
 				// XXX(longsleep): What to do here?
-				logger.Warnln("ooo received a audio track but already got one, ignoring track")
+				trackLogger.Warnln("ttt received a remote audio track but already got one, ignoring track")
+				connectionRecord.Unlock()
 				return
 			}
 
-			trackID := "atrack_" + connectionRecord.owner.id
-			audioTrack, trackErr := pc.NewTrack(remoteTrack.PayloadType(), remoteTrack.SSRC(), trackID, connectionRecord.guid)
+			trackSSRC := remoteTrack.SSRC()
+			//trackSSRC := newRandomUint32()
+			trackID := newRandomGUID()
+			//trackID := "atrack_" + connectionRecord.owner.id
+			audioTrack, trackErr := pc.NewTrack(remoteTrack.PayloadType(), trackSSRC, trackID, connectionRecord.guid)
 			if trackErr != nil {
-				logger.WithError(trackErr).WithField("label", remoteTrack.Label()).Errorln("ooo failed to create new track for audio")
+				trackLogger.WithError(trackErr).WithField("sfu_track_ssr", audioTrack.SSRC()).Errorln("ttt failed to create new sfu track for audio")
 				return
 			}
+			trackLogger.WithField("sfu_track_ssrc", audioTrack.SSRC()).Debugln("ttt created new sfu audio track")
 			connectionRecord.tracks["audio"] = audioTrack
 			connectionRecord.Unlock()
 
@@ -1164,21 +1233,41 @@ func (channel *RTMChannelSFUChannel) createPeerConnection(connectionRecord *rtmC
 			for {
 				readN, readWriteErr = remoteTrack.Read(rtpBuf)
 				if readWriteErr != nil {
-					logger.WithError(readWriteErr).WithField("label", remoteTrack.Label()).Errorln("ooo failed to read from audio track")
+					trackLogger.WithError(readWriteErr).WithField("sfu_track_ssr", audioTrack.SSRC()).Errorln("ttt failed to read from remote audio track")
 					break
 				}
 
 				_, readWriteErr = audioTrack.Write(rtpBuf[:readN])
 				if readWriteErr != nil && readWriteErr != io.ErrClosedPipe { // ErrClosedPipe means we don't have any subscribers.
-					logger.WithError(readWriteErr).WithField("label", remoteTrack.Label()).Errorln("ooo failed to write to audio track")
+					trackLogger.WithError(readWriteErr).WithField("sfu_track_ssr", audioTrack.SSRC()).Errorln("ttt failed to write to sfu audio track")
 					break
 				}
 			}
 
-			logger.WithField("track_id", trackID).Debugln("ooo sfu audio track pump exit")
+			logger.WithField("sfu_track_ssr", audioTrack.SSRC()).Debugln("ttt sfu audio track pump exit")
+
+			connectionRecord.Lock()
+			defer connectionRecord.maybeNegotiateAndUnlock()
+
+			// Make track unavailable for forwarding.
+			channel.trackCh <- &rtmChannelConnectionTrack{
+				track:      audioTrack,
+				connection: connectionRecord,
+				source:     sourceRecord,
+				remove:     true,
+			}
+
+			delete(connectionRecord.tracks, "audio")
 		}
 	})
 	pc.OnDataChannel(func(dataChannel *webrtc.DataChannel) {
+		connectionRecord.Lock()
+		defer connectionRecord.Unlock()
+		if connectionRecord.pc != pc {
+			// Replaced, do nothing.
+			return
+		}
+
 		logger.Debugln("ddd data channel received")
 		dataChannelErr := channel.setupDataChannel(connectionRecord, dataChannel)
 		if dataChannelErr != nil {
@@ -1261,12 +1350,13 @@ func (channel *RTMChannelSFUChannel) createOffer(connectionRecord *rtmChannelCon
 		Hash:    channel.hash,
 		Target:  sourceRecord.id,
 		Source:  connectionRecord.id,
+		Group:   channel.group,
 		State:   state,
 		Pcid:    connectionRecord.pcid,
 		Data:    sdpBytes,
 	}
 
-	channel.logger.WithField("pcid", connectionRecord.pcid).Debugln(">>> sending offer", sourceRecord.id)
+	channel.logger.WithField("pcid", connectionRecord.pcid).Debugln(">>> kkk sending offer", sourceRecord.id)
 	return channel.send(out)
 }
 
@@ -1296,26 +1386,27 @@ func (channel *RTMChannelSFUChannel) createAnswer(connectionRecord *rtmChannelCo
 		Hash:    channel.hash,
 		Target:  sourceRecord.id,
 		Source:  connectionRecord.id,
+		Group:   channel.group,
 		State:   state,
 		Pcid:    connectionRecord.pcid,
 		Data:    sdpBytes,
 	}
 
-	go func() {
+	func() {
 		if !experimentICETrickle {
 			<-connectionRecord.iceComplete
 		}
 
-		connectionRecord.Lock()
-		defer connectionRecord.maybeNegotiateAndUnlock()
+		//connectionRecord.Lock()
+		//defer connectionRecord.maybeNegotiateAndUnlock()
 
-		channel.logger.WithField("pcid", connectionRecord.pcid).Debugln(">>> sending answer", sourceRecord.id)
+		channel.logger.WithField("pcid", connectionRecord.pcid).Debugln(">>> kkk sending answer", sourceRecord.id)
 		if sendErr := channel.send(out); sendErr != nil {
 			channel.logger.WithError(sendErr).Errorln("failed to send answer description, killing sfu channel")
 			channel.sfu.Close() // NOTE(longsleep): This is brutal, add dedicated errorchannel or similar.
 		}
 
-		if !connectionRecord.initiator && connectionRecord.pipeline == nil {
+		if !connectionRecord.initiator && (connectionRecord.pipeline == nil || !experimentAlwaysAddTransceiverToSender) {
 			if transceiversErr := channel.requestMissingTransceivers(connectionRecord, sourceRecord, state); transceiversErr != nil {
 				channel.logger.WithError(transceiversErr).Errorln("failed to request missing transceivers, killing sfu channel")
 				channel.sfu.Close() // NOTE(longsleep): This is brutal, add dedicated errorchannel or similar.
@@ -1357,7 +1448,7 @@ func (channel *RTMChannelSFUChannel) negotiate(connectionRecord *rtmChannelConne
 				"target": sourceRecord.id,
 				"source": connectionRecord.id,
 				"pcid":   connectionRecord.pcid,
-			}).Debugln("nnn start negotiation, sending offer")
+			}).Debugln("nnn start negotiation, creating offer")
 			if err := channel.createOffer(connectionRecord, sourceRecord, state); err != nil {
 				return fmt.Errorf("failed to create offer in negotiate: %w", err)
 			}
@@ -1389,6 +1480,7 @@ func (channel *RTMChannelSFUChannel) negotiate(connectionRecord *rtmChannelConne
 				Hash:    channel.hash,
 				Target:  sourceRecord.id,
 				Source:  connectionRecord.id,
+				Group:   channel.group,
 				State:   state,
 				Pcid:    connectionRecord.pcid,
 				Data:    renegotiateBytes,
@@ -1410,26 +1502,29 @@ func (channel *RTMChannelSFUChannel) requestMissingTransceivers(connectionRecord
 		"source": sourceRecord.id,
 		"pcid":   connectionRecord.pcid,
 	})
-	logger.Debugln("uuu requestMissingTransceivers")
+
+	logger.Debugln("kkk requestMissingTransceivers")
 	for _, transceiver := range connectionRecord.pc.GetTransceivers() {
 		sender := transceiver.Sender()
-		logger.Debugln("uuu requestMissingTransceiver has sender", sender != nil)
+		logger.Debugln("kkk requestMissingTransceiver has sender", sender != nil)
 		if sender == nil {
 			continue
 		}
 		track := sender.Track()
-		logger.Debugln("uuu requestMissingTransceiver sender has track", track != nil)
+		logger.Debugln("kkk requestMissingTransceiver sender has track", track != nil)
 		if track == nil {
 			continue
 		}
 		// Avoid adding the same transceiver multiple times.
-		if _, seen := connectionRecord.requestedTransceivers.LoadOrStore(transceiver, nil); seen {
-			logger.Debugln("uuu requestMissingTransceiver already requested, doing nothing")
+		if _, seen := connectionRecord.requestedTransceivers.LoadOrStore(track.ID(), nil); seen {
+			logger.Debugln("www kkk requestMissingTransceiver already requested, doing nothing")
 			continue
 		}
-		channel.logger.Debugf("uuu requestMissingTransceivers for transceiver", track.Kind())
-		if err := channel.addTransceiver(connectionRecord, sourceRecord, state, track.Kind(), nil); err != nil {
-			return fmt.Errorf("uuu error while adding missing transceiver: %w", err)
+		channel.logger.Debugln("www kkk requestMissingTransceivers for transceiver", track.Kind())
+		if err := channel.addTransceiver(connectionRecord, sourceRecord, state, track.Kind(), &webrtc.RtpTransceiverInit{
+			Direction: transceiver.Direction(),
+		}); err != nil {
+			return fmt.Errorf("www kkk error while adding missing transceiver: %w", err)
 		}
 	}
 
@@ -1443,34 +1538,50 @@ func (channel *RTMChannelSFUChannel) addTransceiver(connectionRecord *rtmChannel
 			initArray = append(initArray, *init)
 		}
 		if _, err := connectionRecord.pc.AddTransceiverFromKind(kind, initArray...); err != nil {
-			return fmt.Errorf("uuu failed to add transceiver: %w", err)
+			return fmt.Errorf("kkk failed to add transceiver: %w", err)
 		}
-		channel.logger.WithField("pcid", connectionRecord.pcid).Debugln("uuu trigger negotiation after add transceiver", kind)
+		channel.logger.WithField("pcid", connectionRecord.pcid).Debugln("kkk trigger negotiation after add transceiver", kind)
 		if err := channel.negotiationNeeded(connectionRecord); err != nil {
-			return fmt.Errorf("uuu failed to schedule negotiation: %w", err)
+			return fmt.Errorf("kkk failed to schedule negotiation: %w", err)
 		}
 	} else {
 		if !experimentAddTransceiver {
-			channel.logger.Debugln("uuu addTransceiver experiment not enabled")
+			channel.logger.Debugln("kkk addTransceiver experiment not enabled")
 			return nil
+		}
+		transceiverRequest := &RTMDataTransceiverRequest{
+			Kind: kind.String(),
+		}
+		if init != nil {
+			// Flip direction.
+			var direction webrtc.RTPTransceiverDirection
+			switch init.Direction {
+			case webrtc.RTPTransceiverDirectionSendonly:
+				direction = webrtc.RTPTransceiverDirectionRecvonly
+			case webrtc.RTPTransceiverDirectionRecvonly:
+				direction = webrtc.RTPTransceiverDirectionSendonly
+			case webrtc.RTPTransceiverDirectionSendrecv:
+				direction = webrtc.RTPTransceiverDirectionSendrecv
+			}
+			transceiverRequest.Init = &RTMDataTransceiverRequestInit{
+				Direction: direction.String(),
+			}
 		}
 		channel.logger.WithFields(logrus.Fields{
 			"target": sourceRecord.id,
 			"source": connectionRecord.id,
-		}).Debugln("uuu requesting transceivers from initiator")
-		transceiverRequest := &RTMDataTransceiverRequest{
-			Kind: kind.String(),
-		}
+			"kind":   transceiverRequest.Kind,
+		}).Debugln("www kkk requesting transceivers from initiator")
 		transceiverRequestBytes, err := json.MarshalIndent(transceiverRequest, "", "\t")
 		if err != nil {
-			return fmt.Errorf("uuu failed to mashal transceiver request: %w", err)
+			return fmt.Errorf("kkk failed to mashal transceiver request: %w", err)
 		}
 		transceiverRequestData := &RTMDataWebRTCSignal{
 			TransceiverRequest: transceiverRequestBytes,
 		}
 		transceiverRequestDataBytes, err := json.MarshalIndent(transceiverRequestData, "", "\t")
 		if err != nil {
-			return fmt.Errorf("uuu failed to mashal transceiver request data: %w", err)
+			return fmt.Errorf("kkk failed to mashal transceiver request data: %w", err)
 		}
 		out := &api.RTMTypeWebRTC{
 			RTMTypeSubtypeEnvelope: &api.RTMTypeSubtypeEnvelope{
@@ -1482,13 +1593,14 @@ func (channel *RTMChannelSFUChannel) addTransceiver(connectionRecord *rtmChannel
 			Hash:    channel.hash,
 			Target:  sourceRecord.id,
 			Source:  connectionRecord.id,
+			Group:   channel.group,
 			State:   state,
 			Pcid:    connectionRecord.pcid,
 			Data:    transceiverRequestDataBytes,
 		}
-		channel.logger.Debugln(">>> uuu sending transceiver request", sourceRecord.id)
+		channel.logger.Debugln(">>> kkk sending transceiver request", sourceRecord.id)
 		if err = channel.send(out); err != nil {
-			return fmt.Errorf("uuu failed to send transceiver request: %w", err)
+			return fmt.Errorf("kkk failed to send transceiver request: %w", err)
 		}
 	}
 
@@ -1517,6 +1629,7 @@ func (channel *RTMChannelSFUChannel) sendCandidate(connectionRecord *rtmChannelC
 		Hash:    channel.hash,
 		Target:  sourceRecord.id,
 		Source:  connectionRecord.id,
+		Group:   channel.group,
 		State:   state,
 		Pcid:    connectionRecord.pcid,
 		Data:    candidateDataBytes,

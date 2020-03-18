@@ -8,7 +8,7 @@ require (
 	github.com/orcaman/concurrent-map v0.0.0-20190826125027-8c72a8bb44f6
 	github.com/pion/logging v0.2.2
 	github.com/pion/rtcp v1.2.1
-	github.com/pion/webrtc/v2 v2.2.3
+	github.com/pion/webrtc/v2 v2.2.4-0.20200310073244-be9fde1fd3cf
 	github.com/prometheus/client_golang v1.5.0
 	github.com/rogpeppe/fastuuid v1.2.0
 	github.com/sirupsen/logrus v1.4.2
@@ -23,3 +23,5 @@ require (
 replace nhooyr.io/websocket => github.com/nhooyr/websocket v1.8.4 // Fetch directly from Github
 
 replace github.com/marten-seemann/qtls => github.com/marten-seemann/qtls v0.4.1 // Pin version with license
+
+replace github.com/pion/webrtc/v2 => github.com/kopano-dev/webrtc/v2 v2.2.4-0.20200323181547-5d9cfe3ca1bd

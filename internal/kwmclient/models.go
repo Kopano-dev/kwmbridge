@@ -43,6 +43,10 @@ type RTMDataWebRTCSignal struct {
 }
 
 type RTMDataTransceiverRequest struct {
-	Kind string `json:"kind"`
-	// TODO(longsleep): Add Init object (might not be needed?)
+	Kind string                         `json:"kind"`
+	Init *RTMDataTransceiverRequestInit `json:"init,omitempty"`
+}
+
+type RTMDataTransceiverRequestInit struct {
+	Direction string `json:"direction,omitempty"`
 }
