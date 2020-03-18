@@ -1,0 +1,25 @@
+[Unit]
+Description=Kopano KWM Bridge
+After=network.target
+
+[Service]
+Type=simple
+CPUSchedulingPolicy=rr
+CPUSchedulingPriority=55
+IOSchedulingClass=realtime
+IOSchedulingPriority=3
+PrivateTmp=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=full
+UMask=0077
+DynamicUser=yes
+PrivateUsers=yes
+LimitNOFILE=infinity
+PermissionsStartOnly=true
+Environment=LC_CTYPE=en_US.UTF-8
+EnvironmentFile=-/etc/kopano/kwmbridged.cfg
+ExecStart=/usr/sbin/kopano-kwmbridged serve --log-timestamp=false
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,67 @@
+#!/bin/sh
+#
+# Kopano KWM Bridge (kwmbridged) launcher
+#
+# License: AGPL-3.0-only
+# Copyright 2020 Kopano and its licensors
+#
+
+set -e
+
+# Base defines.
+
+EXE=/usr/libexec/kopano/kwmbridged
+DEFAULT_OIDC_ISSUER_IDENTIFIER=https://localhost
+
+# Handle parameters for configuration.
+
+case "${1}" in
+	serve)
+		# Inject values from environment into command line. This is mainly used
+		# when this script is run from systemd or docker.
+
+		# kwmserverd basics
+
+		if [ -n "$oidc_issuer_identifier" ]; then
+			if [ -n "$OIDC_ISSUER_IDENTIFIER" ]; then
+				>&2	echo "Warning: duplicate setting of issuer identifier - using value from environment"
+				oidc_issuer_identifier="$OIDC_ISSUER_IDENTIFIER"
+			fi
+		fi
+		if [ -z "$oidc_issuer_identifier" ]; then
+			# NOTE(longsleep): Not sure if this is the best idea/default but at least
+			# having a default will let the service start.
+			oidc_issuer_identifier=${OIDC_ISSUER_IDENTIFIER:-${DEFAULT_OIDC_ISSUER_IDENTIFIER}}
+		fi
+
+		if [ "$insecure" = "yes" ]; then
+			set -- "$@" "--insecure"
+		fi
+
+		if [ -n "$listen" ]; then
+			set -- "$@" --listen="$listen"
+		fi
+
+		if [ -n "$log_level" ]; then
+			set -- "$@" --log-level="$log_level"
+		fi
+
+		if [ -n "$oidc_issuer_identifier" ]; then
+			set -- "$@" --iss="$oidc_issuer_identifier"
+		fi
+
+		# kwmbridged extra
+
+		;;
+
+	*)
+		;;
+esac
+
+# Set executable.
+
+set -- ${EXE} "$@"
+
+# Run.
+
+exec "$@"
