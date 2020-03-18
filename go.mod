@@ -21,3 +21,5 @@ require (
 )
 
 replace nhooyr.io/websocket => github.com/nhooyr/websocket v1.8.4 // Fetch directly from Github
+
+replace github.com/marten-seemann/qtls => github.com/marten-seemann/qtls v0.4.1 // Pin version with license
