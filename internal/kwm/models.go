@@ -3,21 +3,15 @@
  * Copyright 2020 Kopano and its licensors
  */
 
-package kwmclient
+package kwm
 
 import (
 	"encoding/json"
-
-	api "stash.kopano.io/kwm/kwmserver/signaling/api-v1"
 )
 
-// TODO(longsleep): Import this from kwmserver, it is currently is there in the
+// TODO(longsleep): Import these from kwmserver, it is currently is there in the
 // signaling/mcu package, but really should move to the api package. Until it
 // becomes available there, we clone it here.
-
-type mcuMessage struct {
-	*WebsocketMessage
-}
 
 // WebsocketMessage is the container for basic mcu websocket messages.
 type WebsocketMessage struct {
@@ -25,11 +19,6 @@ type WebsocketMessage struct {
 	Transaction string `json:"transaction"`
 	Plugin      string `json:"plugin"`
 	Handle      int64  `json:"handle_id"`
-}
-
-type webrtcMessage struct {
-	*api.RTMTypeEnvelope
-	*api.RTMTypeWebRTC
 }
 
 type RTMDataWebRTCSignal struct {

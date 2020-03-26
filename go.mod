@@ -8,6 +8,7 @@ require (
 	github.com/orcaman/concurrent-map v0.0.0-20190826125027-8c72a8bb44f6
 	github.com/pion/logging v0.2.2
 	github.com/pion/rtcp v1.2.1
+	github.com/pion/rtp v1.3.2
 	github.com/pion/webrtc/v2 v2.2.4-0.20200310073244-be9fde1fd3cf
 	github.com/prometheus/client_golang v1.5.0
 	github.com/rogpeppe/fastuuid v1.2.0

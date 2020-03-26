@@ -20,7 +20,7 @@ case "${1}" in
 		# Inject values from environment into command line. This is mainly used
 		# when this script is run from systemd or docker.
 
-		# kwmserverd basics
+		# kwmbridged basics
 
 		if [ -n "$oidc_issuer_identifier" ]; then
 			if [ -n "$OIDC_ISSUER_IDENTIFIER" ]; then

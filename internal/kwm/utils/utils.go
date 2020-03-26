@@ -3,7 +3,7 @@
  * Copyright 2020 Kopano and its licensors
  */
 
-package kwmclient
+package utils
 
 import (
 	"crypto/rand"
@@ -19,7 +19,7 @@ var guidGenerator = fastuuid.MustNewGenerator()
 
 const maxUint32 = ^uint32(0)
 
-func asWebsocketURL(uriString string) (string, error) {
+func AsWebsocketURL(uriString string) (string, error) {
 	uri, err := url.Parse(uriString)
 	if err != nil {
 		return "", err
@@ -35,7 +35,7 @@ func asWebsocketURL(uriString string) (string, error) {
 	return uri.String(), nil
 }
 
-func computeInitiator(source, target string) bool {
+func ComputeInitiator(source, target string) bool {
 	if source == "" {
 		return false
 	}
@@ -44,11 +44,11 @@ func computeInitiator(source, target string) bool {
 	return source < target
 }
 
-func newRandomGUID() string {
+func NewRandomGUID() string {
 	return guidGenerator.Hex128()
 }
 
-func newRandomUint32() uint32 {
+func NewRandomUint32() uint32 {
 	n, err := rand.Int(rand.Reader, big.NewInt(int64(maxUint32)))
 	if err != nil {
 		panic(err)
@@ -57,6 +57,6 @@ func newRandomUint32() uint32 {
 	return uint32(n.Uint64())
 }
 
-func newRandomString(n int) string {
+func NewRandomString(n int) string {
 	return base64.RawURLEncoding.EncodeToString(rndm.GenerateRandomBytes(base64.RawURLEncoding.DecodedLen(n)))
 }

@@ -24,7 +24,9 @@ import (
 	kcoidc "stash.kopano.io/kc/libkcoidc"
 
 	cfg "stash.kopano.io/kwm/kwmbridge/config"
-	"stash.kopano.io/kwm/kwmbridge/internal/kwmclient"
+	"stash.kopano.io/kwm/kwmbridge/internal/kwm"
+	"stash.kopano.io/kwm/kwmbridge/internal/kwm/mcu"
+	"stash.kopano.io/kwm/kwmbridge/internal/kwm/mcu/plugins/rtmcsfu"
 )
 
 // Server is our HTTP server implementation.
@@ -187,26 +189,37 @@ func (s *Server) Serve(ctx context.Context) error {
 			wg.Done()
 		}()
 
-		// TODO(longsleep): Add configuration for kwmserver address.
+		// TODO(longsleep): Add support for multiple.
 		uri := s.config.KWMServerURIs[0]
-		logger.WithField("url", uri).Infoln("creating kwm mcu client")
-		kwm, kwmErr := kwmclient.New(uri, &kwmclient.Config{
+		logger.WithField("url", uri).Infoln("creating kwm client")
+		kwmc, err := kwm.NewClient(uri, &kwm.Config{
 			Config: s.config,
 
 			HTTPClient: s.config.HTTPClient,
-			Logger:     s.config.Logger,
+			Logger:     s.config.Logger.WithField("url", uri),
 		})
-		if kwmErr != nil {
-			errCh <- kwmErr
+		if err != nil {
+			errCh <- err
 			return
 		}
 
-		// Connect and reconnect (this blocks.)
-		logger.WithField("url", uri).Infoln("connecting to kwm mcu API")
+		mcuc, err := mcu.NewClient(kwmc, &mcu.Options{
+			Config: s.config,
+
+			HTTPClient: s.config.HTTPClient,
+			Logger:     s.config.Logger.WithField("url", uri),
+
+			AttachPluginFactoryFunc: rtmcsfu.New,
+		})
+		if err != nil {
+			errCh <- err
+		}
+
 		for {
-			kwmErr = kwm.MCU.Start(serveCtx)
-			if kwmErr != nil && !errors.Is(kwmErr, context.Canceled) {
-				logger.WithError(kwmErr).Debugln("kwm mcu connection stopped with error, restart scheduled")
+			logger.WithField("url", uri).Infoln("connecting to kwm mcu API")
+			err = mcuc.Start(serveCtx) // Connect and reconnect, this blocks.
+			if err != nil && !errors.Is(err, context.Canceled) {
+				logger.WithError(err).Warnln("kwm mcu API connection stopped with error, restart scheduled")
 			}
 			select {
 			case <-serveCtx.Done():

@@ -3,7 +3,7 @@
  * Copyright 2020 Kopano and its licensors
  */
 
-package kwmclient
+package rtmcsfu
 
 import (
 	pionLogging "github.com/pion/logging"
