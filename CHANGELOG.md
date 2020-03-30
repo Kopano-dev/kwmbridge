@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+
+
+## v0.0.1 (2020-03-30)
+
 - Add RTP processing and SFU RTP logic
 - Improve sender stream connectivity
 - Add preliminary startup scripts and config
