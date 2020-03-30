@@ -332,7 +332,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 			if pc != nil && message.Pcid != "" {
 				connectionRecord.rpcid = message.Pcid
 				logger.WithFields(logrus.Fields{
-					"pcic":  connectionRecord.pcid,
+					"pcid":  connectionRecord.pcid,
 					"rpcid": message.Pcid,
 				}).Debugln("uuu bound connection to remote")
 			}
