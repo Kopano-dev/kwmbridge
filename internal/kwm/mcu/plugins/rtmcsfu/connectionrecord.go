@@ -54,7 +54,7 @@ type ConnectionRecord struct {
 	senders map[uint32]*webrtc.RTPSender
 	pending map[uint32]*TrackRecord
 
-	rtcpCh          chan rtcp.Packet
+	rtcpCh          chan *RTCPRecord
 	rtpPayloadTypes map[string]uint8
 
 	jitterbuffer *jitterbuffer.JitterBuffer
@@ -255,7 +255,10 @@ func (record *ConnectionRecord) addTrack(trackRecord *TrackRecord) (bool, error)
 				senderRecord.RUnlock()
 				for _, pkt := range pkts {
 					if pkt != nil {
-						rtcpCh <- pkt
+						rtcpCh <- &RTCPRecord{
+							packet: pkt,
+							track:  track,
+						}
 					}
 				}
 			}

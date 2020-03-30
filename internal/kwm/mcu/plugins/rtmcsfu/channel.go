@@ -875,21 +875,23 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 			connectionRecord.guid = "stream_" + connectionRecord.owner.id
 		}
 		if connectionRecord.rtcpCh == nil {
-			rtcpCh := make(chan rtcp.Packet, maxChSize)
+			rtcpCh := make(chan *RTCPRecord, maxChSize)
 			connectionRecord.rtcpCh = rtcpCh
 			go func(ctx context.Context) {
 				for {
-					var pkt rtcp.Packet
+					var rtcpRecord *RTCPRecord
 					select {
 					case <-ctx.Done():
 						return
-					case pkt = <-rtcpCh:
+					case rtcpRecord = <-rtcpCh:
 					}
 
-					if pkt == nil {
-						// No package, means we have been reset, exit.
+					if rtcpRecord == nil {
+						// No record, means we have been reset, exit.
 						return
 					}
+
+					pkt := rtcpRecord.packet
 
 					switch pkt.(type) {
 					case *rtcp.PictureLossIndication:
@@ -901,7 +903,36 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 							}
 						}
 					case *rtcp.TransportLayerNack:
-						// Ignore for now.
+						logger.Debugln("aaa rtcp transport layer nack", pkt)
+						nack := pkt.(*rtcp.TransportLayerNack)
+						for _, nackPair := range nack.Nacks {
+							foundPkt := connectionRecord.jitterbuffer.GetPacket(nack.MediaSSRC, nackPair.PacketID)
+							if foundPkt == nil {
+								logger.Debugln("aaa rtcp transport layer nack not found")
+								// Not found in buffer, notify sender.
+								n := &rtcp.TransportLayerNack{
+									SenderSSRC: nack.SenderSSRC,
+									MediaSSRC:  nack.MediaSSRC,
+									Nacks:      []rtcp.NackPair{rtcp.NackPair{PacketID: nackPair.PacketID}},
+								}
+								if pc != nil {
+									// Tell sender that packages were lost.
+									writeErr := pc.WriteRTCP([]rtcp.Packet{n})
+									if writeErr != nil {
+										logger.WithError(writeErr).Errorln("aaa failed to write rtcp nackindicator to sender")
+									}
+								}
+							} else {
+								// We have the missing data, Write pkt again.
+								logger.Debugln("aaa rtcp transport layer nack write again", rtcpRecord.track != nil)
+								if rtcpRecord.track != nil {
+									writeErr := rtcpRecord.track.WriteRTP(foundPkt)
+									if writeErr != nil {
+										logger.WithError(writeErr).Errorln("aaa failed to write rtp resend after nack")
+									}
+								}
+							}
+						}
 					case *rtcp.ReceiverReport:
 						// Ignore for now.
 					case *rtcp.ReceiverEstimatedMaximumBitrate:
@@ -992,7 +1023,7 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 
 					count++
 					// Write to tracks non blocking.
-					go func(idx uint64) {
+					func(idx uint64) {
 						var payloadType uint8
 						channel.connections.IterCb(func(id string, record interface{}) {
 							if record == sourceRecord {

@@ -99,6 +99,12 @@ func (j *JitterBuffer) Start(ctx context.Context) error {
 	return nil
 }
 
+func (j *JitterBuffer) Stop() {
+	for _, buffer := range j.buffers {
+		buffer.Stop()
+	}
+}
+
 func (j *JitterBuffer) startPLILoop() {
 	ctx := j.ctx
 
@@ -126,7 +132,7 @@ func (j *JitterBuffer) startPLILoop() {
 
 		for _, buffer := range j.GetBuffers() {
 			if buffer.IsVideo() {
-				//j.logger.Debugln("jjj pli loop")
+				//j.logger.WithField("id", j.id).Debugln("jjj pli loop")
 				pli := &rtcp.PictureLossIndication{SenderSSRC: buffer.GetSSRC(), MediaSSRC: buffer.GetSSRC()}
 				j.rtcpCh <- pli
 			}
@@ -162,6 +168,7 @@ func (j *JitterBuffer) startRembLoop() {
 		for _, buffer := range j.GetBuffers() {
 			j.lostRate, j.bandwidth = buffer.GetLostRateBandwidth(uint64(j.config.RembInterval))
 			/*j.logger.WithFields(logrus.Fields{
+				"jitter_id": j.id,
 				"lostRate":  j.lostRate,
 				"bandwidth": j.bandwidth,
 			}).Debugln("jjj remb loop")*/
@@ -200,6 +207,7 @@ func (j *JitterBuffer) startNackLoop(b *Buffer) {
 		case <-ctx.Done():
 			return
 		case nack := <-b.GetRTCPChan():
+			//j.logger.WithField("jitter_id", j.id).Debugln("zzz nack loop nack", nack)
 			j.rtcpCh <- nack
 		}
 	}
@@ -241,4 +249,12 @@ func (j *JitterBuffer) PushRTP(pkt *rtp.Packet, isVideo bool) error {
 
 	buffer.Push(pkt)
 	return nil
+}
+
+func (j *JitterBuffer) GetPacket(ssrc uint32, sn uint16) *rtp.Packet {
+	buffer := j.buffers[ssrc]
+	if buffer == nil {
+		return nil
+	}
+	return buffer.GetPacket(sn)
 }

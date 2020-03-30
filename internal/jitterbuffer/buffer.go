@@ -28,6 +28,8 @@
 package jitterbuffer
 
 import (
+	"fmt"
+
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 )
@@ -100,6 +102,10 @@ func (b *Buffer) IsVideo() bool {
 	return b.video
 }
 
+func (b *Buffer) Stop() {
+	close(b.rtcpCh)
+}
+
 func (b *Buffer) Push(p *rtp.Packet) {
 	b.receivedPkt++
 	b.totalByte += uint64(p.MarshalSize())
@@ -137,10 +143,12 @@ func (b *Buffer) Push(p *rtp.Packet) {
 	}
 
 	if b.lastPushSN-b.lastNackSN >= maxNackLostSize {
+		size := b.lastPushSN - b.lastNackSN
 		// Calc [lastNackSN, lastpush-8] if has keyframe.
 		nackPair, lostPkt := b.GetNackPair(b.pktBuffer, b.lastNackSN, b.lastPushSN)
 		b.lastNackSN = b.lastPushSN
 		if lostPkt > 0 {
+			fmt.Printf("zzz b.lastNackSN=%v, b.lastPushSN=%v, lostPkt=%v, nackPair=%v, nackSize=%v\n", b.lastNackSN, b.lastPushSN, lostPkt, nackPair, size)
 			b.lostPkt += lostPkt
 			nack := &rtcp.TransportLayerNack{
 				// Origin ssrc.
@@ -217,4 +225,8 @@ func (b *Buffer) GetLostRateBandwidth(cycle uint64) (float64, uint64) {
 	byteRate := b.totalByte / cycle
 	b.receivedPkt, b.lostPkt, b.totalByte = 0, 0, 0
 	return lostRate, byteRate * 8 / 1000
+}
+
+func (b *Buffer) GetPacket(sn uint16) *rtp.Packet {
+	return b.pktBuffer[sn]
 }
