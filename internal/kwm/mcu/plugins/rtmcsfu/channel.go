@@ -1301,17 +1301,19 @@ func (channel *Channel) negotiationNeeded(connectionRecord *ConnectionRecord) er
 
 func (channel *Channel) negotiate(connectionRecord *ConnectionRecord, sourceRecord *UserRecord, state string) error {
 	if connectionRecord.initiator {
-		if connectionRecord.isNegotiating {
-			connectionRecord.queuedNegotiation = true
-			channel.logger.Debugln("nnn initiator already negotiating, queueing")
-		} else {
-			channel.logger.WithFields(logrus.Fields{
-				"target": sourceRecord.id,
-				"source": connectionRecord.id,
-				"pcid":   connectionRecord.pcid,
-			}).Debugln("nnn start negotiation, creating offer")
-			if err := channel.createOffer(connectionRecord, sourceRecord, state); err != nil {
-				return fmt.Errorf("failed to create offer in negotiate: %w", err)
+		if connectionRecord.pc != nil {
+			if connectionRecord.isNegotiating {
+				connectionRecord.queuedNegotiation = true
+				channel.logger.Debugln("nnn initiator already negotiating, queueing")
+			} else {
+				channel.logger.WithFields(logrus.Fields{
+					"target": sourceRecord.id,
+					"source": connectionRecord.id,
+					"pcid":   connectionRecord.pcid,
+				}).Debugln("nnn start negotiation, creating offer")
+				if err := channel.createOffer(connectionRecord, sourceRecord, state); err != nil {
+					return fmt.Errorf("failed to create offer in negotiate: %w", err)
+				}
 			}
 		}
 	} else {
