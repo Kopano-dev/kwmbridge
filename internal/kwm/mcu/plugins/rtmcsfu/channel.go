@@ -938,7 +938,7 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 						for _, nackPair := range nack.Nacks {
 							foundPkt := connectionRecord.jitterbuffer.GetPacket(nack.MediaSSRC, nackPair.PacketID)
 							if foundPkt == nil {
-								logger.Debugln("aaa rtcp transport layer nack not found")
+								//logger.Debugln("aaa rtcp transport layer nack not found")
 								// Not found in buffer, notify sender.
 								n := &rtcp.TransportLayerNack{
 									SenderSSRC: nack.SenderSSRC,
