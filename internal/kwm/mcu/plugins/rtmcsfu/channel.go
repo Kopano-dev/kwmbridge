@@ -406,13 +406,13 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 			return fmt.Errorf("failed to parse sdp payload: %w", err)
 		}
 
-		if connectionRecord.pipeline != nil {
+		/*if connectionRecord.pipeline != nil {
 			logger.WithField("pcid", connectionRecord.pcid).Debugln("kkk signal for pipeline", sdpType)
-		}
+		}*/
 
 		haveRemoteDescription := connectionRecord.pc != nil && connectionRecord.pc.CurrentRemoteDescription() != nil
 		if haveRemoteDescription {
-			logger.Debugln(">>> kkk sdp signal while already having remote description set")
+			//logger.Debugln(">>> kkk sdp signal while already having remote description set")
 			timeout := time.After(5 * time.Second)
 			for {
 				// NOTE(longsleep): This is a workaround for the problem when the remote descriptions is overwritten
@@ -421,7 +421,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 				wait := false
 				for _, sender := range connectionRecord.pc.GetSenders() {
 					senderState := sender.Transport().State()
-					logger.Debugln(">>> kkk sdp sender transport state", senderState)
+					//logger.Debugln(">>> kkk sdp sender transport state", senderState)
 					if senderState == webrtc.DTLSTransportStateNew {
 						wait = true
 						break
@@ -483,12 +483,12 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 				return fmt.Errorf("aaa failed to populate media engine from remote description: %w", populateErr)
 			}
 			for _, codec := range m.GetCodecsByKind(webrtc.RTPCodecTypeVideo) {
-				channel.logger.Debugln("aaa remote media video codec", codec.PayloadType, codec.Name)
+				//channel.logger.Debugln("aaa remote media video codec", codec.PayloadType, codec.Name)
 				codec.RTPCodecCapability.RTCPFeedback = rtcpfb
 				connectionRecord.rtpPayloadTypes[codec.Name] = codec.PayloadType
 			}
 			for _, codec := range m.GetCodecsByKind(webrtc.RTPCodecTypeAudio) {
-				channel.logger.Debugln("aaa remote media audio codec", codec.PayloadType, codec.Name)
+				//channel.logger.Debugln("aaa remote media audio codec", codec.PayloadType, codec.Name)
 				connectionRecord.rtpPayloadTypes[codec.Name] = codec.PayloadType
 			}
 			connectionRecord.webrtcMedia = &m
@@ -538,7 +538,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 				// remote description, in the hope the pending tracks can be
 				// added now.
 				for ssrc, trackRecord := range connectionRecord.pending {
-					logger.WithField("track_ssrc", trackRecord.track.SSRC()).Debugln("ttt adding pending sfu track to target")
+					//logger.WithField("track_ssrc", trackRecord.track.SSRC()).Debugln("ttt adding pending sfu track to target")
 					if added, addErr := connectionRecord.addTrack(trackRecord); addErr != nil {
 						logger.WithError(addErr).WithField("track_ssrc", trackRecord.track.SSRC()).Errorln("ttt add pending sfu track to target failed")
 						delete(connectionRecord.pending, ssrc)
@@ -895,7 +895,7 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 							}
 						}
 					case *rtcp.TransportLayerNack:
-						logger.Debugln("aaa rtcp transport layer nack", pkt)
+						//logger.Debugln("aaa rtcp transport layer nack", pkt)
 						nack := pkt.(*rtcp.TransportLayerNack)
 						for _, nackPair := range nack.Nacks {
 							foundPkt := connectionRecord.jitterbuffer.GetPacket(nack.MediaSSRC, nackPair.PacketID)
@@ -916,7 +916,7 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 								}
 							} else {
 								// We have the missing data, Write pkt again.
-								logger.Debugln("aaa rtcp transport layer nack write again", rtcpRecord.track != nil)
+								//logger.Debugln("aaa rtcp transport layer nack write again", rtcpRecord.track != nil)
 								if rtcpRecord.track != nil {
 									writeErr := rtcpRecord.track.WriteRTP(foundPkt)
 									if writeErr != nil {
@@ -1139,7 +1139,7 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 			return
 		}
 
-		logger.Debugln("ddd data channel received")
+		//logger.Debugln("ddd data channel received")
 		dataChannelErr := channel.setupDataChannel(connectionRecord, dataChannel)
 		if dataChannelErr != nil {
 			logger.WithError(dataChannelErr).Errorln("ddd error setting up remote data channel")
@@ -1151,7 +1151,7 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 	}).Debugln("uuu created new peer connection")
 
 	if experimentAlwaysAddTransceiverToSender && connectionRecord.pipeline != nil {
-		channel.logger.WithField("pcid", connectionRecord.pcid).Debugln("kkk adding transceivers to sender")
+		//channel.logger.WithField("pcid", connectionRecord.pcid).Debugln("kkk adding transceivers to sender")
 		transceiverInit := webrtc.RtpTransceiverInit{
 			Direction: webrtc.RTPTransceiverDirectionRecvonly,
 		}
@@ -1164,7 +1164,7 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 	}
 
 	if connectionRecord.initiator {
-		logger.Debugln("uuu trigger initiator negotiation")
+		//logger.Debugln("uuu trigger initiator negotiation")
 		if err = channel.negotiationNeeded(connectionRecord); err != nil {
 			return nil, fmt.Errorf("failed to schedule negotiation: %w", err)
 		}
@@ -1178,10 +1178,10 @@ func (channel *Channel) setupDataChannel(connectionRecord *ConnectionRecord, dat
 		"pcid":        connectionRecord.pcid,
 		"datachannel": dataChannel.Label(),
 	})
-	logger.Debugln("ddd setting up data channel")
+	//logger.Debugln("ddd setting up data channel")
 
 	dataChannel.OnOpen(func() {
-		logger.Debugln("ddd data channel open")
+		//logger.Debugln("ddd data channel open")
 	})
 	dataChannel.OnClose(func() {
 		logger.Debugln("ddd data channel close")
@@ -1307,11 +1307,11 @@ func (channel *Channel) negotiationNeeded(connectionRecord *ConnectionRecord) er
 	case connectionRecord.needsNegotiation <- true:
 	default:
 		// channel is full, so already queued.
-		channel.logger.WithFields(logrus.Fields{
+		/*channel.logger.WithFields(logrus.Fields{
 			"target": connectionRecord.owner.id,
 			"source": connectionRecord.id,
 			"pcid":   connectionRecord.pcid,
-		}).Debugln("nnn negotiation already needed, will only request once")
+		}).Debugln("nnn negotiation already needed, will only request once")*/
 		return nil
 	}
 	channel.logger.WithFields(logrus.Fields{
@@ -1383,21 +1383,21 @@ func (channel *Channel) negotiate(connectionRecord *ConnectionRecord, sourceReco
 }
 
 func (channel *Channel) requestMissingTransceivers(connectionRecord *ConnectionRecord, sourceRecord *UserRecord, state string) error {
-	logger := channel.logger.WithFields(logrus.Fields{
+	/*logger := channel.logger.WithFields(logrus.Fields{
 		"target": connectionRecord.id,
 		"source": sourceRecord.id,
 		"pcid":   connectionRecord.pcid,
-	})
+	})*/
 
-	logger.Debugln("kkk requestMissingTransceivers")
+	//logger.Debugln("kkk requestMissingTransceivers")
 	for _, transceiver := range connectionRecord.pc.GetTransceivers() {
 		sender := transceiver.Sender()
-		logger.Debugln("kkk requestMissingTransceiver has sender", sender != nil)
+		//logger.Debugln("kkk requestMissingTransceiver has sender", sender != nil)
 		if sender == nil {
 			continue
 		}
 		track := sender.Track()
-		logger.Debugln("kkk requestMissingTransceiver sender has track", track != nil)
+		//logger.Debugln("kkk requestMissingTransceiver sender has track", track != nil)
 		if track == nil {
 			continue
 		}
@@ -1413,10 +1413,10 @@ func (channel *Channel) requestMissingTransceivers(connectionRecord *ConnectionR
 func (channel *Channel) requestMissingTransceiver(connectionRecord *ConnectionRecord, track *webrtc.Track, direction webrtc.RTPTransceiverDirection) error {
 	// Avoid adding the same transceiver multiple times.
 	if _, seen := connectionRecord.requestedTransceivers.LoadOrStore(track.SSRC(), nil); seen {
-		channel.logger.WithField("track_ssrc", track.SSRC()).Debugln("www kkk requestMissingTransceiver already requested, doing nothing")
+		//channel.logger.WithField("track_ssrc", track.SSRC()).Debugln("www kkk requestMissingTransceiver already requested, doing nothing")
 		return nil
 	}
-	channel.logger.Debugln("www kkk requestMissingTransceiver for transceiver", track.Kind(), track.SSRC())
+	//channel.logger.Debugln("www kkk requestMissingTransceiver for transceiver", track.Kind(), track.SSRC())
 	if err := channel.addTransceiver(connectionRecord, connectionRecord.owner, connectionRecord.state, track.Kind(), &webrtc.RtpTransceiverInit{
 		Direction: direction,
 	}); err != nil {
@@ -1461,11 +1461,11 @@ func (channel *Channel) addTransceiver(connectionRecord *ConnectionRecord, sourc
 				Direction: direction.String(),
 			}
 		}
-		channel.logger.WithFields(logrus.Fields{
+		/*channel.logger.WithFields(logrus.Fields{
 			"target": sourceRecord.id,
 			"source": connectionRecord.id,
 			"kind":   transceiverRequest.Kind,
-		}).Debugln("www kkk requesting transceivers from initiator")
+		}).Debugln("www kkk requesting transceivers from initiator")*/
 		transceiverRequestBytes, err := json.MarshalIndent(transceiverRequest, "", "\t")
 		if err != nil {
 			return fmt.Errorf("kkk failed to mashal transceiver request: %w", err)
@@ -1492,7 +1492,7 @@ func (channel *Channel) addTransceiver(connectionRecord *ConnectionRecord, sourc
 			Pcid:    connectionRecord.pcid,
 			Data:    transceiverRequestDataBytes,
 		}
-		channel.logger.Debugln(">>> kkk sending transceiver request", sourceRecord.id)
+		//channel.logger.Debugln(">>> kkk sending transceiver request", sourceRecord.id)
 		if err = channel.send(out); err != nil {
 			return fmt.Errorf("kkk failed to send transceiver request: %w", err)
 		}

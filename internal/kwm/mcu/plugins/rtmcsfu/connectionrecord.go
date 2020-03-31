@@ -13,7 +13,6 @@ import (
 
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v2"
-	"github.com/sirupsen/logrus"
 	api "stash.kopano.io/kwm/kwmserver/signaling/api-v1"
 
 	"stash.kopano.io/kwm/kwmbridge/internal/jitterbuffer"
@@ -183,7 +182,7 @@ func (record *ConnectionRecord) maybeNegotiateAndUnlock() {
 		return
 	case needsNegotiation := <-record.needsNegotiation:
 		if needsNegotiation {
-			record.owner.channel.logger.WithField("pcid", record.pcid).Debugln("<<< nnn needs negotiation", record.owner.id)
+			//record.owner.channel.logger.WithField("pcid", record.pcid).Debugln("<<< nnn needs negotiation", record.owner.id)
 			if negotiateErr := record.owner.channel.negotiate(record, record.owner, record.state); negotiateErr != nil {
 				record.owner.channel.logger.WithError(negotiateErr).Errorln("nnn failed to trigger negotiation")
 				// TODO(longsleep): Figure out what to do here.
@@ -224,7 +223,7 @@ func (record *ConnectionRecord) addTrack(trackRecord *TrackRecord) (bool, error)
 			return false, fmt.Errorf("failed to create track from sender track: %w", err)
 		}
 
-		record.owner.channel.logger.WithField("track_ssrc", track.SSRC()).Debugln("aaa adding transceiver from track")
+		//record.owner.channel.logger.WithField("track_ssrc", track.SSRC()).Debugln("aaa adding transceiver from track")
 		transceiver, err := record.pc.AddTransceiverFromTrack(track, transceiverInit)
 		if err != nil {
 			return false, fmt.Errorf("failed to add transceiver from track to record: %w", err)
@@ -271,11 +270,11 @@ func (record *ConnectionRecord) addTrack(trackRecord *TrackRecord) (bool, error)
 		}
 		if _, exists := record.pending[senderTrack.SSRC()]; exists {
 			// Track already pending, do nothing.
-			record.owner.channel.logger.WithFields(logrus.Fields{
+			/*record.owner.channel.logger.WithFields(logrus.Fields{
 				"pcid":        record.pcid,
 				"rpcid":       record.rpcid,
 				"track_codec": senderCodec.Name,
-			}).Debugln("ttt track is already pending, do nothing")
+			}).Debugln("ttt track is already pending, do nothing")*/
 			return false, nil
 		}
 
@@ -298,7 +297,7 @@ func (record *ConnectionRecord) removeTrack(trackRecord *TrackRecord) (bool, err
 
 	sender, haveSender := record.senders[senderTrack.SSRC()]
 	if !haveSender {
-		record.owner.channel.logger.WithField("track_ssrc", senderTrack.SSRC()).Debugln("ttt tried remove sfu track without sender, nothing to do")
+		//record.owner.channel.logger.WithField("track_ssrc", senderTrack.SSRC()).Debugln("ttt tried remove sfu track without sender, nothing to do")
 		return false, nil
 	}
 
