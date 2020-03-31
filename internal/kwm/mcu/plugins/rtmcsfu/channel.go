@@ -1031,8 +1031,12 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 							}
 							targetConnection := record.(*ConnectionRecord)
 
-							// Get tracks and payload table.
+							// Lock target, check and get tracks and payload table.
 							targetConnection.RLock()
+							if targetConnection.owner == nil {
+								targetConnection.RUnlock()
+								return
+							}
 							track := targetConnection.tracks[pkt.SSRC]
 							if payloadType, ok = targetConnection.rtpPayloadTypes[localCodec.Name]; !ok {
 								// Found target payload.
