@@ -272,7 +272,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 		if !ok {
 			//channel.logMessage("xxx trigger new userRecord", message)
 			userRecordImpl := NewUserRecord(channel, message.Source)
-			channel.logger.WithField("source", userRecordImpl.id).Debugln("new user")
+			channel.logger.WithField("source", userRecordImpl.id).Debugln("rrr new user")
 
 			// Initiate default sender too.
 			defaultSenderConnectionRecord, _ := channel.createSender(userRecordImpl)
@@ -294,16 +294,48 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 			if !ok {
 				defaultSenderConnectionRecord, _ := channel.createSender(sourceRecord)
 				userRecord = defaultSenderConnectionRecord
-				channel.logger.WithField("source", sourceRecord.id).Debugln("created default sender for pipeline message")
+				channel.logger.WithField("source", sourceRecord.id).Debugln("rrr created default sender for pipeline message")
 			}
 			return userRecord
 		})
 
 	} else {
+		defer func() {
+			if record, ok := channel.connections.Get(message.Target); ok {
+				// Target already exists, get connection to source and make sure it works.
+				targetRecord := record.(*UserRecord)
+
+				if record, ok = targetRecord.connections.Get(message.Source); ok {
+					connectionRecord := record.(*ConnectionRecord)
+					connectionRecord.Lock()
+					defer connectionRecord.maybeNegotiateAndUnlock()
+					if connectionRecord.pc == nil {
+						logger.WithField("initiator", connectionRecord.initiator).Debugln("rrr target exists already, resurrecting connection")
+						if connectionRecord.initiator {
+							connectionRecord.pcid = ""
+							if _, pcErr := channel.createPeerConnection(connectionRecord, sourceRecord, connectionRecord.state, ""); pcErr != nil {
+								logger.WithError(pcErr).Errorln("rrr failed to create peer connection while resurrecting")
+							}
+							if connectionRecord.pipeline == nil {
+								// Add as receiver connection (sfu sends to it, clients receive) if not a pipeline (where sfu receives).
+								channel.receiverCh <- connectionRecord
+							}
+						} else {
+							if err := channel.negotiationNeeded(connectionRecord); err != nil {
+								logger.WithError(err).Errorln("rrr failed to trigger negotiation while resurrecting")
+							}
+						}
+					}
+				} else {
+					logger.Debugln("rrr target exists, but no matching connection")
+				}
+			}
+		}()
+
 		record = sourceRecord.connections.Upsert(message.Target, nil, func(ok bool, connectionRecord interface{}, n interface{}) interface{} {
 			if !ok {
 				connectionRecordImpl := NewConnectionRecord(channel.sfu.wsCtx, sourceRecord, message.Target, message.State, nil)
-				logger.WithField("initiator", connectionRecordImpl.initiator).Debugln("new connection")
+				logger.WithField("initiator", connectionRecordImpl.initiator).Debugln("rrr new connection")
 
 				connectionRecord = connectionRecordImpl
 			}
@@ -329,7 +361,6 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 				}).Debugln("uuu bound connection to remote")
 			}
 		} else {
-			connectionRecord.rpcid = message.Pcid
 			if pc != nil {
 				logger.WithFields(logrus.Fields{
 					"rpcid_old": connectionRecord.rpcid,
@@ -337,6 +368,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 					"pcid":      connectionRecord.pcid,
 				}).Debugln("uuu rpcid has changed, destroying old peer connection")
 				connectionRecord.pc = nil
+				connectionRecord.pcid = ""
 				pc.Close()
 			}
 		}
@@ -355,7 +387,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 			logger.WithField("pcid", connectionRecord.pcid).Debugln("uuu trigger received renegotiate negotiation ", sourceRecord.id)
 
 			if connectionRecord.pc == nil {
-				if _, pcErr := channel.createPeerConnection(connectionRecord, sourceRecord, connectionRecord.state); pcErr != nil {
+				if _, pcErr := channel.createPeerConnection(connectionRecord, sourceRecord, connectionRecord.state, message.Pcid); pcErr != nil {
 					return fmt.Errorf("uuu failed to create new peer connection: %w", pcErr)
 				}
 				if connectionRecord.pipeline == nil {
@@ -507,7 +539,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 					return fmt.Errorf("uuu failed to trigger negotiation for answer signal without peer connection: %w", err)
 				}
 			}
-			if _, pcErr := channel.createPeerConnection(connectionRecord, sourceRecord, connectionRecord.state); pcErr != nil {
+			if _, pcErr := channel.createPeerConnection(connectionRecord, sourceRecord, connectionRecord.state, ""); pcErr != nil {
 				return fmt.Errorf("uuu failed to create new peer connection: %w", pcErr)
 			}
 			if connectionRecord.pipeline == nil {
@@ -616,8 +648,6 @@ func (channel *Channel) handleWebRTCHangupMessage(message *api.RTMTypeWebRTC) er
 		connectionRecord.Unlock()
 	})
 
-	sourceRecord.reset()
-
 	return nil
 }
 
@@ -664,7 +694,7 @@ func (channel *Channel) createSender(sourceRecord *UserRecord) (*ConnectionRecor
 	return defaultSenderConnectionRecord, nil
 }
 
-func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord, sourceRecord *UserRecord, state string) (*webrtc.PeerConnection, error) {
+func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord, sourceRecord *UserRecord, state string, rpcid string) (*webrtc.PeerConnection, error) {
 	if connectionRecord.webrtcAPI == nil {
 		if connectionRecord.initiator {
 			rtcpfb := []webrtc.RTCPFeedback{
@@ -716,15 +746,17 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 
 	iceComplete := connectionRecord.iceComplete
 
-	pcid := utils.NewRandomString(7)
+	if connectionRecord.pcid == "" {
+		connectionRecord.pcid = utils.NewRandomString(7)
+	}
 	connectionRecord.pc = pc
-	connectionRecord.pcid = pcid
+	connectionRecord.rpcid = rpcid
 	connectionRecord.isNegotiating = false
 
 	logger := channel.logger.WithFields(logrus.Fields{
 		"source": sourceRecord.id,
 		"target": connectionRecord.id,
-		"pcid":   pcid,
+		"pcid":   connectionRecord.pcid,
 	})
 
 	// Create data channel when initiator.
@@ -803,37 +835,43 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 		}
 	})
 	pc.OnConnectionStateChange(func(connectionState webrtc.PeerConnectionState) {
-		logger.Debugln("ppp onConnectionStateChange", connectionState)
+		logger.Debugln("rrr onConnectionStateChange", connectionState)
 
 		if connectionState == webrtc.PeerConnectionStateClosed {
 			connectionRecord.Lock()
-			defer connectionRecord.Unlock()
+			defer func() {
+				connectionRecord.reset(channel.sfu.wsCtx)
+				connectionRecord.Unlock()
+			}()
 
 			if connectionRecord.pipeline != nil && connectionRecord.owner != nil {
 				// Having a pipeline connected, means this is a special connection, look further.
 
 				if connectionRecord.pc != nil && connectionRecord.pc != pc {
 					// This connection has been replaced already, do nothing.
-					logger.Debugln("ppp ignored close on different porentially replaced connection")
+					logger.Debugln("rrr ignored close on different porentially replaced connection")
 					return
 				}
 
 				if record, ok := connectionRecord.owner.senders.Get("default"); ok && record == connectionRecord {
 					// This is the default record, kill off everything of that user.
-					logger.Debugln("ppp default sender is closed, killing off user")
-					if record, ok = channel.connections.Pop(connectionRecord.owner.id); ok && record == connectionRecord.owner {
-						logger.Debugln("ppp removing killed user from channel")
-
+					logger.Debugln("rrr default sender is closed, killing off user")
+					if removed := channel.connections.RemoveCb(connectionRecord.owner.id, func(key string, record interface{}, exists bool) bool {
+						if exists && record == connectionRecord.owner {
+							return true
+						}
+						return false
+					}); removed {
+						logger.Debugln("rrr removing killed user from channel")
 						connectionRecord.owner.connections.IterCb(func(target string, record interface{}) {
 							targetRecord := record.(*ConnectionRecord)
 							targetRecord.Lock()
 							targetRecord.reset(channel.sfu.wsCtx)
 							targetRecord.Unlock()
 						})
-						connectionRecord.owner.reset()
 						connectionRecord.owner = nil
 					} else {
-						logger.Warnln("ppp default sender owner not found in channel")
+						logger.Debugln("rrr default sender owner of closed peer connection not found in channel")
 						return
 					}
 				}
@@ -1360,6 +1398,9 @@ func (channel *Channel) negotiate(connectionRecord *ConnectionRecord, sourceReco
 			if err != nil {
 				return fmt.Errorf("nnn failed to mashal renegotiate data: %w", err)
 			}
+			if connectionRecord.pcid == "" {
+				connectionRecord.pcid = utils.NewRandomString(7)
+			}
 			out := &api.RTMTypeWebRTC{
 				RTMTypeSubtypeEnvelope: &api.RTMTypeSubtypeEnvelope{
 					Type:    api.RTMTypeNameWebRTC,
@@ -1375,7 +1416,7 @@ func (channel *Channel) negotiate(connectionRecord *ConnectionRecord, sourceReco
 				Pcid:    connectionRecord.pcid,
 				Data:    renegotiateBytes,
 			}
-			channel.logger.Debugln(">>> nnn sending renegotiate", sourceRecord.id)
+			channel.logger.WithField("pcid", connectionRecord.pcid).Debugln(">>> nnn sending renegotiate", sourceRecord.id)
 			if err = channel.send(out); err != nil {
 				return fmt.Errorf("nnn failed to send renegotiate: %w", err)
 			}
@@ -1496,7 +1537,7 @@ func (channel *Channel) addTransceiver(connectionRecord *ConnectionRecord, sourc
 			Pcid:    connectionRecord.pcid,
 			Data:    transceiverRequestDataBytes,
 		}
-		//channel.logger.Debugln(">>> kkk sending transceiver request", sourceRecord.id)
+		channel.logger.WithField("pcid", connectionRecord.pcid).Debugln(">>> kkk sending transceiver request", sourceRecord.id)
 		if err = channel.send(out); err != nil {
 			return fmt.Errorf("kkk failed to send transceiver request: %w", err)
 		}
@@ -1533,7 +1574,7 @@ func (channel *Channel) sendCandidate(connectionRecord *ConnectionRecord, source
 		Data:    candidateDataBytes,
 	}
 
-	//channel.logger.Debugln(">>> sending candidate", sourceRecord.id)
+	channel.logger.WithField("pcid", connectionRecord.pcid).Debugln(">>> sending candidate", sourceRecord.id)
 	if err = channel.send(out); err != nil {
 		return fmt.Errorf("failed to send candidate: %w", err)
 	}

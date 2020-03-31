@@ -32,10 +32,3 @@ func NewUserRecord(channel *Channel, id string) *UserRecord {
 		senders:     cmap.New(),
 	}
 }
-
-func (record *UserRecord) reset() {
-	record.channel = nil
-
-	record.connections = nil
-	record.senders = nil
-}
