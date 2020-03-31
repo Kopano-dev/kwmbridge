@@ -20,3 +20,22 @@ type UserRecord struct {
 	connections cmap.ConcurrentMap // Holds target connections for the associated user by target.
 	senders     cmap.ConcurrentMap // Holds the connection which receive streams..
 }
+
+func NewUserRecord(channel *Channel, id string) *UserRecord {
+	return &UserRecord{
+		channel: channel,
+
+		when: time.Now(),
+		id:   id,
+
+		connections: cmap.New(),
+		senders:     cmap.New(),
+	}
+}
+
+func (record *UserRecord) reset() {
+	record.channel = nil
+
+	record.connections = nil
+	record.senders = nil
+}

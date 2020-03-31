@@ -120,7 +120,7 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 					connectionRecord.Lock()
 					defer connectionRecord.maybeNegotiateAndUnlock()
 					pc := connectionRecord.pc
-					if pc == nil {
+					if pc == nil || connectionRecord.owner == nil {
 						// No peer connection in this record, skip.
 						logger.Debugln("ooo no peer connection on sfu target, skipping")
 						return
@@ -199,7 +199,7 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 					defer connectionRecord.maybeNegotiateAndUnlock()
 					logger.Debugln("sss sfu using connection", connectionRecord.id)
 					pc := connectionRecord.pc
-					if pc == nil {
+					if pc == nil || connectionRecord.owner == nil {
 						// No peer connection in our record, do nothing.
 						return
 					}
@@ -271,15 +271,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 	record = channel.connections.Upsert(message.Source, nil, func(ok bool, userRecord interface{}, n interface{}) interface{} {
 		if !ok {
 			//channel.logMessage("xxx trigger new userRecord", message)
-			userRecordImpl := &UserRecord{
-				channel: channel,
-
-				when: time.Now(),
-				id:   message.Source,
-
-				connections: cmap.New(),
-				senders:     cmap.New(),
-			}
+			userRecordImpl := NewUserRecord(channel, message.Source)
 			channel.logger.WithField("source", userRecordImpl.id).Debugln("new user")
 
 			// Initiate default sender too.
@@ -616,7 +608,6 @@ func (channel *Channel) handleWebRTCHangupMessage(message *api.RTMTypeWebRTC) er
 		connectionRecord.reset(channel.sfu.wsCtx)
 		connectionRecord.Unlock()
 	})
-	sourceRecord.senders = nil
 
 	sourceRecord.connections.IterCb(func(target string, record interface{}) {
 		connectionRecord := record.(*ConnectionRecord)
@@ -624,7 +615,8 @@ func (channel *Channel) handleWebRTCHangupMessage(message *api.RTMTypeWebRTC) er
 		connectionRecord.reset(channel.sfu.wsCtx)
 		connectionRecord.Unlock()
 	})
-	sourceRecord.connections = nil
+
+	sourceRecord.reset()
 
 	return nil
 }
@@ -817,7 +809,7 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 			connectionRecord.Lock()
 			defer connectionRecord.Unlock()
 
-			if connectionRecord.pipeline != nil {
+			if connectionRecord.pipeline != nil && connectionRecord.owner != nil {
 				// Having a pipeline connected, means this is a special connection, look further.
 
 				if connectionRecord.pc != nil && connectionRecord.pc != pc {
@@ -836,9 +828,7 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 							targetRecord := record.(*ConnectionRecord)
 							targetRecord.reset(channel.sfu.wsCtx)
 						})
-						connectionRecord.owner.connections = nil
-						connectionRecord.owner.senders = nil
-						connectionRecord.owner.channel = nil
+						connectionRecord.owner.reset()
 						connectionRecord.owner = nil
 					} else {
 						logger.Warnln("ppp default sender owner not found in channel")
@@ -860,7 +850,7 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 		})
 		trackLogger.Debugln("ttt onTrack")
 		connectionRecord.Lock()
-		if connectionRecord.pc != pc {
+		if connectionRecord.pc != pc || connectionRecord.owner == nil {
 			// Replaced, do nothing.
 			connectionRecord.Unlock()
 			return
