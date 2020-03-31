@@ -803,7 +803,7 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 		}
 	})
 	pc.OnConnectionStateChange(func(connectionState webrtc.PeerConnectionState) {
-		logger.Debugln("ppp onConnectionStateChange", connectionState, connectionRecord.pipeline)
+		logger.Debugln("ppp onConnectionStateChange", connectionState)
 
 		if connectionState == webrtc.PeerConnectionStateClosed {
 			connectionRecord.Lock()
@@ -826,7 +826,9 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 
 						connectionRecord.owner.connections.IterCb(func(target string, record interface{}) {
 							targetRecord := record.(*ConnectionRecord)
+							targetRecord.Lock()
 							targetRecord.reset(channel.sfu.wsCtx)
+							targetRecord.Unlock()
 						})
 						connectionRecord.owner.reset()
 						connectionRecord.owner = nil
