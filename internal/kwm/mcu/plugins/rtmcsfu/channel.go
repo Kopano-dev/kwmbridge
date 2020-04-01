@@ -720,7 +720,7 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 			}
 			m := webrtc.MediaEngine{}
 			m.RegisterCodec(webrtc.NewRTPOpusCodec(webrtc.DefaultPayloadTypeOpus, 48000))
-			m.RegisterCodec(webrtc.NewRTPVP8CodecExt(webrtc.DefaultPayloadTypeVP8, 90000, rtcpfb))
+			m.RegisterCodec(webrtc.NewRTPVP8CodecExt(webrtc.DefaultPayloadTypeVP8, 90000, rtcpfb, ""))
 			for _, codec := range m.GetCodecsByKind(webrtc.RTPCodecTypeVideo) {
 				codec.RTPCodecCapability.RTCPFeedback = rtcpfb
 				connectionRecord.rtpPayloadTypes[codec.Name] = codec.PayloadType

@@ -32,6 +32,7 @@ const (
 	experimentICETrickle                   = false // Buggy in pion/webrtc when using multiple answer/offers.
 	experimentUseRTCFBNack                 = true
 	experimentUseRTCFBTransportCC          = false // Causes bad video frame rate, not implemeneted?
+	experimentUseReplayProtection          = false // Causes lot of replay log messages on info level.
 )
 
 const (
@@ -81,6 +82,9 @@ func New(attach *kwm.WebsocketMessage, ws *websocket.Conn, options *mcu.Options)
 	}
 	s.SetTrickle(experimentICETrickle)
 	s.SetLite(true)
+
+	s.DisableSRTPReplayProtection(!experimentUseReplayProtection)
+	s.DisableSRTCPReplayProtection(!experimentUseReplayProtection)
 
 	if len(options.Config.ICEInterfaces) > 0 {
 		logger.WithField("interfaces", options.Config.ICEInterfaces).Debugln("enabling ICE interface filter")
