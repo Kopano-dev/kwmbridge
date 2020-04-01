@@ -83,8 +83,14 @@ func New(attach *kwm.WebsocketMessage, ws *websocket.Conn, options *mcu.Options)
 	s.SetTrickle(experimentICETrickle)
 	s.SetLite(true)
 
-	s.DisableSRTPReplayProtection(!experimentUseReplayProtection)
-	s.DisableSRTCPReplayProtection(!experimentUseReplayProtection)
+	if experimentUseReplayProtection {
+		s.SetDTLSReplayProtectionWindow(128)
+		s.SetSRTPReplayProtectionWindow(64)
+		s.SetSRTCPReplayProtectionWindow(32)
+	} else {
+		s.DisableSRTPReplayProtection(true)
+		s.DisableSRTCPReplayProtection(true)
+	}
 
 	if len(options.Config.ICEInterfaces) > 0 {
 		logger.WithField("interfaces", options.Config.ICEInterfaces).Debugln("enabling ICE interface filter")
