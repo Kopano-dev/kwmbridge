@@ -4,6 +4,12 @@
 
 
 
+## v0.0.4 (2020-04-02)
+
+- Increase websocket size limit to match kwmserver
+- Add bunch of settings to configuration file
+
+
 ## v0.0.3 (2020-04-02)
 
 - Stop all connections to a channel on its close
