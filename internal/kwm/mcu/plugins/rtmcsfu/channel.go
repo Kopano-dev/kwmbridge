@@ -47,6 +47,8 @@ type Channel struct {
 }
 
 func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error) {
+	ctx := sfu.wsCtx
+
 	extra := &api.RTMDataWebRTCChannelExtra{}
 	err := json.Unmarshal(message.Data, extra)
 	if err != nil {
@@ -84,6 +86,9 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 		var index uint64
 		for {
 			select {
+			case <-ctx.Done():
+				return
+
 			case trackRecord := <-channel.trackCh:
 				remove := trackRecord.remove
 
@@ -162,11 +167,13 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 
 	go func() {
 		// Receiver pc worker adds all existing tracks to newly created peer connections.
-		// TODO(longsleep): Add a way to exit this.
 		var logger logrus.FieldLogger
 		var index uint64
 		for {
 			select {
+			case <-ctx.Done():
+				return
+
 			case connectionRecord := <-channel.receiverCh:
 				index++
 
@@ -1578,6 +1585,13 @@ func (channel *Channel) sendCandidate(connectionRecord *ConnectionRecord, source
 	if err = channel.send(out); err != nil {
 		return fmt.Errorf("failed to send candidate: %w", err)
 	}
+
+	return nil
+}
+
+func (channel *Channel) Stop() error {
+	channel.Lock()
+	defer channel.Unlock()
 
 	return nil
 }

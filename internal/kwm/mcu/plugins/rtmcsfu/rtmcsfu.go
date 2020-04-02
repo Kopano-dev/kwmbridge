@@ -158,26 +158,16 @@ func New(attach *kwm.WebsocketMessage, ws *websocket.Conn, options *mcu.Options)
 }
 
 func (sfu *RTMChannelSFU) Start(ctx context.Context) error {
-	var err error
 	errCh := make(chan error, 1)
 
 	sfu.wsCtx, sfu.wsCancel = context.WithCancel(ctx)
 
-	wg := sync.WaitGroup{}
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
-
-		sfu.logger.Infoln("sfu connection established, waiting for action")
+		sfu.logger.Infoln("sfu connection established")
 		readPumpErr := sfu.readPump() // This blocks.
 		errCh <- readPumpErr          // Always send result, to unblock cleanup.
 	}()
-
-	err = <-errCh
-	sfu.wsCancel()
-	wg.Wait()
-
-	return err
+	return <-errCh
 }
 
 func (sfu *RTMChannelSFU) readPump() error {
@@ -264,7 +254,7 @@ func (sfu *RTMChannelSFU) handleWebRTCMessage(message *api.RTMTypeWebRTC) error 
 		channel := sfu.channel
 		sfu.RUnlock()
 		if channel == nil {
-			sfu.logger.WithField("channel", message.Channel).Errorln("sfu has no channel")
+			sfu.logger.WithField("channel", message.Channel).Warnln("sfu got signal but has no channel")
 			return errors.New("no channel")
 		}
 		err = channel.handleWebRTCSignalMessage(message)
@@ -291,6 +281,16 @@ func (sfu *RTMChannelSFU) handleWebRTCMessage(message *api.RTMTypeWebRTC) error 
 }
 
 func (sfu *RTMChannelSFU) Close() error {
+	sfu.Lock()
+	defer sfu.Unlock()
+
+	channel := sfu.channel
+	sfu.channel = nil
+
 	sfu.wsCancel()
+	if channel != nil {
+		sfu.logger.WithField("channel", channel.channel).Infoln("sfu channel stop")
+		return channel.Stop()
+	}
 	return nil
 }

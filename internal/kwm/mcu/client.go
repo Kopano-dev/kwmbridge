@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sync"
 	"time"
 
 	"github.com/orcaman/concurrent-map"
@@ -81,11 +80,7 @@ func (mcu *Client) Start(ctx context.Context) error {
 
 	errCh := make(chan error, 1)
 
-	wg := sync.WaitGroup{}
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
-
 		mcu.logger.Infoln("mcu API connection connection established, waiting for action")
 		readPumpErr := mcu.readPump() // This blocks.
 		errCh <- readPumpErr          // Always send result, to unblock cleanup.
@@ -93,7 +88,6 @@ func (mcu *Client) Start(ctx context.Context) error {
 
 	err = <-errCh
 	mcu.wsCancel()
-	wg.Wait()
 
 	return err
 }
@@ -164,7 +158,7 @@ func (mcu *Client) handleWebsocketMessage(message *kwm.WebsocketMessage) error {
 			"transaction": message.Transaction,
 			"plugin":      message.Plugin,
 		})
-		logger.Infoln("attaching mcu API transaction to plugin")
+		logger.Debugln("attaching mcu API transaction to plugin")
 
 		// Create new ws connection to attach to channel at mcu.
 		baseURI, err := utils.AsWebsocketURL(mcu.baseURI)
@@ -200,21 +194,27 @@ func (mcu *Client) handleWebsocketMessage(message *kwm.WebsocketMessage) error {
 			plugin: plugin,
 		})
 		go func() {
+			defer func() {
+				// Cleanup.
+				if _, exists := mcu.attached.Pop(message.Transaction); exists {
+					logger.WithField("attached_count", mcu.attached.Count()).Infoln("detached plugin from mcu API transaction")
+				}
+			}()
+
+			// Start plugin, this blocks.
 			pluginErr := plugin.Start(mcu.wsCtx)
 			if pluginErr != nil {
 				logger.WithError(pluginErr).Errorln("mcu API plugin exit with error")
 			} else {
-				logger.Infoln("msc API transaction plugin ended")
+				logger.Infoln("mcu API transaction plugin ended")
 			}
+			// Close plugin when it ended.
 			closeErr := plugin.Close()
 			if closeErr != nil {
 				logger.WithError(closeErr).Errorln("mcu API plugin close error")
 			}
-
-			if _, exists := mcu.attached.Pop(message.Transaction); exists {
-				logger.Infoln("detached plugin from mcu API transaction after plugin ended")
-			}
 		}()
+		logger.WithField("attached_count", mcu.attached.Count()).Infoln("attached mcu API transaction to plugin")
 
 	case "detatch":
 		logger := mcu.logger.WithFields(logrus.Fields{
