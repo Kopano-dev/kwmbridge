@@ -59,7 +59,7 @@ func NewClient(c *kwm.Client, options *Options) (kwm.Plugin, error) {
 func (mcu *Client) Start(ctx context.Context) error {
 	baseURI, err := utils.AsWebsocketURL(mcu.baseURI)
 	if err != nil {
-		return fmt.Errorf("failed to parse mcu base URL: %w", err)
+		return fmt.Errorf("failed to parse mcu API base URL: %w", err)
 	}
 	uri := baseURI + "/websocket"
 
@@ -73,7 +73,7 @@ func (mcu *Client) Start(ctx context.Context) error {
 	}
 	ws, _, err := websocket.Dial(mcu.wsCtx, uri, options)
 	if err != nil {
-		return fmt.Errorf("failed to connect mcu websocket: %w", err)
+		return fmt.Errorf("failed to connect mcu API websocket: %w", err)
 	}
 
 	mcu.ws = ws
@@ -81,7 +81,7 @@ func (mcu *Client) Start(ctx context.Context) error {
 	errCh := make(chan error, 1)
 
 	go func() {
-		mcu.logger.Infoln("mcu API connection connection established, waiting for action")
+		mcu.logger.Infoln("mcu API connection connection established")
 		readPumpErr := mcu.readPump() // This blocks.
 		errCh <- readPumpErr          // Always send result, to unblock cleanup.
 	}()
@@ -163,7 +163,7 @@ func (mcu *Client) handleWebsocketMessage(message *kwm.WebsocketMessage) error {
 		// Create new ws connection to attach to channel at mcu.
 		baseURI, err := utils.AsWebsocketURL(mcu.baseURI)
 		if err != nil {
-			return fmt.Errorf("failed to parse mcu base URL: %w", err)
+			return fmt.Errorf("failed to parse mcu API base URL: %w", err)
 		}
 
 		uri := baseURI + "/websocket/" + message.Transaction

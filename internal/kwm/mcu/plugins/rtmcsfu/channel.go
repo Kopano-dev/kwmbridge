@@ -8,6 +8,7 @@ package rtmcsfu
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -44,6 +45,8 @@ type Channel struct {
 
 	trackCh    chan *TrackRecord
 	receiverCh chan *ConnectionRecord
+
+	closed chan bool
 }
 
 func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error) {
@@ -77,6 +80,8 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 
 		trackCh:    make(chan *TrackRecord, maxChSize),
 		receiverCh: make(chan *ConnectionRecord, maxChSize),
+
+		closed: make(chan bool, 1),
 	}
 
 	go func() {
@@ -86,6 +91,8 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 		var index uint64
 		for {
 			select {
+			case <-channel.closed:
+				return
 			case <-ctx.Done():
 				return
 
@@ -171,6 +178,8 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 		var index uint64
 		for {
 			select {
+			case <-channel.closed:
+				return
 			case <-ctx.Done():
 				return
 
@@ -267,6 +276,12 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 }
 
 func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) error {
+	select {
+	case <-channel.closed:
+		return errors.New("channel is closed")
+	default:
+	}
+
 	if message.Channel != channel.channel {
 		return fmt.Errorf("channel mismatch, got %v, expected %v", message.Channel, channel.channel)
 	}
@@ -625,6 +640,12 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 }
 
 func (channel *Channel) handleWebRTCHangupMessage(message *api.RTMTypeWebRTC) error {
+	select {
+	case <-channel.closed:
+		return errors.New("channel is closed")
+	default:
+	}
+
 	if message.Channel != channel.channel {
 		return fmt.Errorf("channel mismatch, got %v, expected %v", message.Channel, channel.channel)
 	}
@@ -782,6 +803,12 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 	// TODO(longsleep): Bind all event handlers to pcid.
 	pc.OnSignalingStateChange(func(signalingState webrtc.SignalingState) {
 		logger.Debugln("ppp onSignalingStateChange", signalingState)
+		select {
+		case <-channel.closed:
+			return
+		default:
+		}
+
 		if signalingState == webrtc.SignalingStateStable {
 			connectionRecord.Lock()
 			if connectionRecord.pc != pc {
@@ -808,6 +835,12 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 	})
 	pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 		//logger.Debugln("ppp onICECandidate", candidate)
+		select {
+		case <-channel.closed:
+			return
+		default:
+		}
+
 		if candidate == nil {
 			// ICE complete.
 			logger.Debugln("ppp ICE complete")
@@ -843,6 +876,11 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 	})
 	pc.OnConnectionStateChange(func(connectionState webrtc.PeerConnectionState) {
 		logger.Debugln("rrr onConnectionStateChange", connectionState)
+		select {
+		case <-channel.closed:
+			return
+		default:
+		}
 
 		if connectionState == webrtc.PeerConnectionStateClosed {
 			connectionRecord.Lock()
@@ -886,6 +924,12 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 		}
 	})
 	pc.OnTrack(func(remoteTrack *webrtc.Track, receiver *webrtc.RTPReceiver) {
+		select {
+		case <-channel.closed:
+			return
+		default:
+		}
+
 		codec := remoteTrack.Codec()
 		trackLogger := logger.WithFields(logrus.Fields{
 			"track_id":    remoteTrack.ID(),
@@ -1181,6 +1225,12 @@ func (channel *Channel) createPeerConnection(connectionRecord *ConnectionRecord,
 		}
 	})
 	pc.OnDataChannel(func(dataChannel *webrtc.DataChannel) {
+		select {
+		case <-channel.closed:
+			return
+		default:
+		}
+
 		connectionRecord.Lock()
 		defer connectionRecord.Unlock()
 		if connectionRecord.pc != pc {
@@ -1592,6 +1642,37 @@ func (channel *Channel) sendCandidate(connectionRecord *ConnectionRecord, source
 func (channel *Channel) Stop() error {
 	channel.Lock()
 	defer channel.Unlock()
+
+	select {
+	case <-channel.closed:
+		// Already closed, nothing to do.
+		return nil
+	default:
+	}
+
+	defer close(channel.closed)
+
+	channel.logger.Infoln("stopping channel")
+
+	channel.connections.IterCb(func(id string, record interface{}) {
+		channel.logger.Debugln("yyy stopping channel user", id)
+		userRecord := record.(*UserRecord)
+
+		userRecord.senders.IterCb(func(target string, record interface{}) {
+			channel.logger.Debugln("yyy stopping channel user sender", id, target)
+			connectionRecord := record.(*ConnectionRecord)
+			connectionRecord.Lock()
+			connectionRecord.reset(channel.sfu.wsCtx)
+			connectionRecord.Unlock()
+		})
+		userRecord.connections.IterCb(func(target string, record interface{}) {
+			channel.logger.Debugln("yyy stopping channel user target", id, target)
+			connectionRecord := record.(*ConnectionRecord)
+			connectionRecord.Lock()
+			connectionRecord.reset(channel.sfu.wsCtx)
+			connectionRecord.Unlock()
+		})
+	})
 
 	return nil
 }
