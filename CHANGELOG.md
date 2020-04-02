@@ -4,6 +4,14 @@
 
 
 
+## v0.0.3 (2020-04-02)
+
+- Stop all connections to a channel on its close
+- Clean up plugin resources completely on detach
+- Improve replay detection experiment
+- Update webrtc stack to cure race on pc close
+
+
 ## v0.0.2 (2020-03-31)
 
 - Do not log nack misses
