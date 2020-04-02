@@ -23,6 +23,10 @@ import (
 	"stash.kopano.io/kwm/kwmbridge/internal/kwm/utils"
 )
 
+const (
+	websocketMaxMessageSize = 1048576 // 100 KiB, this is what kwmserver uses.
+)
+
 type Client struct {
 	c *kwm.Client
 
@@ -75,6 +79,8 @@ func (mcu *Client) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect mcu API websocket: %w", err)
 	}
+
+	ws.SetReadLimit(websocketMaxMessageSize)
 
 	mcu.ws = ws
 
@@ -178,6 +184,8 @@ func (mcu *Client) handleWebsocketMessage(message *kwm.WebsocketMessage) error {
 		if err != nil {
 			return fmt.Errorf("failed to connect mcu API transaction websocket: %w", err)
 		}
+
+		ws.SetReadLimit(websocketMaxMessageSize)
 
 		factoryFunc := mcu.options.AttachPluginFactoryFunc
 		if factoryFunc == nil {
