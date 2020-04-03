@@ -7,14 +7,16 @@ package kwm
 
 import (
 	"encoding/json"
+
+	api "stash.kopano.io/kwm/kwmserver/signaling/api-v1"
 )
 
 // TODO(longsleep): Import these from kwmserver, it is currently is there in the
 // signaling/mcu package, but really should move to the api package. Until it
 // becomes available there, we clone it here.
 
-// WebsocketMessage is the container for basic mcu websocket messages.
-type WebsocketMessage struct {
+// MCUTypeContainer is the container for basic mcu websocket messages.
+type MCUTypeContainer struct {
 	Type        string `json:"type"`
 	Transaction string `json:"transaction"`
 	Plugin      string `json:"plugin"`
@@ -38,4 +40,13 @@ type RTMDataTransceiverRequest struct {
 
 type RTMDataTransceiverRequestInit struct {
 	Direction string `json:"direction,omitempty"`
+}
+
+type P2PTypeHandshake struct {
+	*api.RTMTypeSubtypeEnvelope
+
+	V  uint64 `json:"v"`
+	Ts uint64 `json:"ts"`
+
+	Data json.RawMessage `json:"data,omitempty"`
 }

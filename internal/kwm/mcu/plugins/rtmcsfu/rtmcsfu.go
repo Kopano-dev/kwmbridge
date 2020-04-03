@@ -68,7 +68,7 @@ type RTMChannelSFU struct {
 	webrtcConfiguration *webrtc.Configuration
 }
 
-func New(attach *kwm.WebsocketMessage, ws *websocket.Conn, options *mcu.Options) (mcu.Plugin, error) {
+func New(attach *kwm.MCUTypeContainer, ws *websocket.Conn, options *mcu.Options) (mcu.Plugin, error) {
 	logger := options.Logger.WithFields(logrus.Fields{
 		"bridge":      "rtmcsfu",
 		"transaction": attach.Transaction,

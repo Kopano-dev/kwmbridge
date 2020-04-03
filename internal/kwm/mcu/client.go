@@ -131,7 +131,7 @@ func (mcu *Client) readPump() error {
 			continue
 		}
 
-		message := &kwm.WebsocketMessage{}
+		message := &kwm.MCUTypeContainer{}
 		err = json.Unmarshal(b.Bytes(), message)
 		bpool.Put(b)
 		if err != nil {
@@ -155,7 +155,7 @@ func (mcu *Client) readPump() error {
 	}
 }
 
-func (mcu *Client) handleWebsocketMessage(message *kwm.WebsocketMessage) error {
+func (mcu *Client) handleWebsocketMessage(message *kwm.MCUTypeContainer) error {
 	//mcu.logger.Debugln("xxx known message", message.Type, message.Transaction)
 
 	switch message.Type {

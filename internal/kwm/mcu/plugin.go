@@ -17,4 +17,4 @@ type Plugin interface {
 	Close() error
 }
 
-type AttachPluginFactoryFunc func(attach *kwm.WebsocketMessage, ws *websocket.Conn, options *Options) (Plugin, error)
+type AttachPluginFactoryFunc func(attach *kwm.MCUTypeContainer, ws *websocket.Conn, options *Options) (Plugin, error)
