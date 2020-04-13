@@ -7,7 +7,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -23,10 +22,10 @@ import (
 	"github.com/sirupsen/logrus"
 	kcoidc "stash.kopano.io/kc/libkcoidc"
 
+	"stash.kopano.io/kwm/kwmbridge/bridge"
+	apiv0 "stash.kopano.io/kwm/kwmbridge/bridge/api-v0/service"
+	"stash.kopano.io/kwm/kwmbridge/bridge/mcuc"
 	cfg "stash.kopano.io/kwm/kwmbridge/config"
-	"stash.kopano.io/kwm/kwmbridge/internal/kwm"
-	"stash.kopano.io/kwm/kwmbridge/internal/kwm/mcu"
-	"stash.kopano.io/kwm/kwmbridge/internal/kwm/mcu/plugins/rtmcsfu"
 )
 
 // Server is our HTTP server implementation.
@@ -114,6 +113,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	defer serveCtxCancel()
 
 	logger := s.logger
+	services := &bridge.Services{}
 
 	// OpenID connect.
 	var oidcp *kcoidc.Provider
@@ -164,6 +164,17 @@ func (s *Server) Serve(ctx context.Context) error {
 		return err
 	}
 
+	mcucManager, err := mcuc.NewManager(serveCtx, s.config, s.config.KWMServerURIs)
+	if err != nil {
+		return err
+	}
+	services.MCUCManager = mcucManager
+
+	if true {
+		apiv0Service := apiv0.NewHTTPService(serveCtx, logger, services)
+		apiv0Service.AddRoutes(ctx, router, nil)
+	}
+
 	wg := &sync.WaitGroup{}
 
 	srv := &http.Server{
@@ -184,51 +195,8 @@ func (s *Server) Serve(ctx context.Context) error {
 
 	wg.Add(1)
 	go func() {
-		defer func() {
-			logger.Debugln("kwm mcu connector stopped")
-			wg.Done()
-		}()
-
-		// TODO(longsleep): Add support for multiple.
-		uri := s.config.KWMServerURIs[0]
-		logger.WithField("url", uri).Infoln("creating kwm client")
-		kwmc, err := kwm.NewClient(uri, &kwm.Config{
-			Config: s.config,
-
-			HTTPClient: s.config.HTTPClient,
-			Logger:     s.config.Logger.WithField("url", uri),
-		})
-		if err != nil {
-			errCh <- err
-			return
-		}
-
-		mcuc, err := mcu.NewClient(kwmc, &mcu.Options{
-			Config: s.config,
-
-			HTTPClient: s.config.HTTPClient,
-			Logger:     s.config.Logger.WithField("url", uri),
-
-			AttachPluginFactoryFunc: rtmcsfu.New,
-		})
-		if err != nil {
-			errCh <- err
-		}
-
-		for {
-			logger.WithField("url", uri).Infoln("connecting to kwm mcu API")
-			err = mcuc.Start(serveCtx) // Connect and reconnect, this blocks.
-			if err != nil && !errors.Is(err, context.Canceled) {
-				logger.WithError(err).Warnln("kwm mcu API connection stopped with error, restart scheduled")
-			}
-			select {
-			case <-serveCtx.Done():
-				return
-			case <-time.After(1 * time.Second):
-				logger.Infoln("reconnecting to kwm mcu API")
-				// breaks and continues.
-			}
-		}
+		mcucManager.Wait()
+		wg.Done()
 	}()
 
 	go func() {

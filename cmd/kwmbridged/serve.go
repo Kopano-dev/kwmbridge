@@ -26,8 +26,8 @@ import (
 	"stash.kopano.io/kgol/ksurveyclient-go/autosurvey"
 	"stash.kopano.io/kgol/ksurveyclient-go/prometrics"
 
+	"stash.kopano.io/kwm/kwmbridge/bridge/server"
 	cfg "stash.kopano.io/kwm/kwmbridge/config"
-	"stash.kopano.io/kwm/kwmbridge/server"
 	"stash.kopano.io/kwm/kwmbridge/version"
 )
 
@@ -111,9 +111,6 @@ func serve(cmd *cobra.Command, args []string) error {
 	}
 	if len(config.KWMServerURIs) == 0 {
 		return fmt.Errorf("kwmserver-uri required but not given")
-	}
-	if len(config.KWMServerURIs) > 1 {
-		return fmt.Errorf("multiple kwmserver-uris are not supported yet, sorry")
 	}
 
 	if ICEInterfaceStrings, _ := cmd.Flags().GetStringArray("use-ice-if"); ICEInterfaceStrings != nil {

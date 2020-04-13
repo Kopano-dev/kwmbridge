@@ -42,7 +42,7 @@ type Client struct {
 	attached cmap.ConcurrentMap
 }
 
-func NewClient(c *kwm.Client, options *Options) (kwm.Plugin, error) {
+func NewClient(c *kwm.Client, options *Options) (*Client, error) {
 	mcu := &Client{
 		c: c,
 
