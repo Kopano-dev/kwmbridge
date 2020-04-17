@@ -15,6 +15,7 @@ import (
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v2"
+	"github.com/sasha-s/go-deadlock"
 	"github.com/sirupsen/logrus"
 	api "stash.kopano.io/kwm/kwmserver/signaling/api-v1"
 
@@ -24,7 +25,7 @@ import (
 )
 
 type ConnectionRecord struct {
-	sync.RWMutex
+	deadlock.RWMutex
 
 	owner  *UserRecord
 	ctx    context.Context

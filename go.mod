@@ -16,6 +16,7 @@ require (
 	github.com/prometheus/client_golang v1.5.1
 	github.com/prometheus/procfs v0.0.11 // indirect
 	github.com/rogpeppe/fastuuid v1.2.0
+	github.com/sasha-s/go-deadlock v0.2.0
 	github.com/sirupsen/logrus v1.5.0
 	github.com/spf13/cobra v0.0.7
 	golang.org/x/crypto v0.0.0-20200323165209-0ec3e9974c59 // indirect

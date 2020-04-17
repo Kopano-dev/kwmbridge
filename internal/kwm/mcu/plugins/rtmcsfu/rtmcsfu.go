@@ -13,9 +13,9 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync"
 
 	"github.com/pion/webrtc/v2"
+	"github.com/sasha-s/go-deadlock"
 	"github.com/sirupsen/logrus"
 	"nhooyr.io/websocket"
 	api "stash.kopano.io/kwm/kwmserver/signaling/api-v1"
@@ -53,7 +53,7 @@ const (
 const WebRTCPayloadVersion = 20180703
 
 type RTMChannelSFU struct {
-	sync.RWMutex
+	deadlock.RWMutex
 
 	options *mcu.Options
 	logger  logrus.FieldLogger

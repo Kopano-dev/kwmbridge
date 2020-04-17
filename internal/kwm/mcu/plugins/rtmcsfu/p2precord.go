@@ -6,15 +6,14 @@
 package rtmcsfu
 
 import (
-	"sync"
-
 	"github.com/pion/webrtc/v2"
+	"github.com/sasha-s/go-deadlock"
 
 	"stash.kopano.io/kwm/kwmbridge/internal/kwm"
 )
 
 type P2PRecord struct {
-	sync.RWMutex
+	deadlock.RWMutex
 
 	controller *P2PController
 
