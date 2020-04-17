@@ -164,6 +164,7 @@ func (record *ConnectionRecord) reset(parentCtx context.Context) {
 					connection: record,
 					source:     record.owner,
 					remove:     true,
+					rtcpCh:     record.rtcpCh,
 				}
 			}
 		}
@@ -497,6 +498,7 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 				}
 			}(connectionRecord.ctx)
 		}
+		rtcpCh := connectionRecord.rtcpCh
 
 		pubCh := make(chan *rtp.Packet, maxChSize)
 		subCh := make(chan *rtp.Packet, maxChSize)
@@ -659,6 +661,7 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 					track:      localTrack,
 					connection: connectionRecord,
 					source:     sourceRecord,
+					rtcpCh:     rtcpCh,
 				}
 
 				func() {
@@ -691,6 +694,7 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 					connection: connectionRecord,
 					source:     sourceRecord,
 					remove:     true,
+					rtcpCh:     rtcpCh,
 				}
 			}()
 		}
@@ -1118,9 +1122,7 @@ func (record *ConnectionRecord) addTrack(trackRecord *TrackRecord) (bool, error)
 		record.tracks[track.SSRC()] = track
 		record.senders[track.SSRC()] = sender
 
-		senderRecord.RLock()
-		rtcpCh := senderRecord.rtcpCh
-		senderRecord.RUnlock()
+		rtcpCh := trackRecord.rtcpCh
 		go func() {
 			for {
 				pkts, err := sender.ReadRTCP()

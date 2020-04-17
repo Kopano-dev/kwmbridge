@@ -227,6 +227,7 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 					}
 					senderRecord := record.(*ConnectionRecord)
 					senderRecord.RLock()
+					rtcpCh := senderRecord.rtcpCh
 					defer senderRecord.RUnlock()
 					logger.Debugln("www sss sfu using wanted sender source")
 
@@ -236,6 +237,7 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 							track:      track,
 							source:     sourceRecord,
 							connection: senderRecord,
+							rtcpCh:     rtcpCh,
 						}
 
 						// Avoid adding the same track multiple times.

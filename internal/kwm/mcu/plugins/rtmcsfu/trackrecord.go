@@ -15,4 +15,5 @@ type TrackRecord struct {
 	connection  *ConnectionRecord
 	remove      bool
 	transceiver bool
+	rtcpCh      chan *RTCPRecord // Holds the track sender's rtcpCh.
 }
