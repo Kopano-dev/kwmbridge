@@ -5,10 +5,12 @@ go 1.14
 require (
 	github.com/golang/protobuf v1.3.5 // indirect
 	github.com/gorilla/mux v1.7.4
+	github.com/justinas/alice v1.2.0
 	github.com/klauspost/compress v1.10.3 // indirect
 	github.com/longsleep/go-metrics v0.0.0-20191013204616-cddea569b0ea
 	github.com/lucas-clemente/quic-go v0.15.2 // indirect
 	github.com/orcaman/concurrent-map v0.0.0-20190826125027-8c72a8bb44f6
+	github.com/petermattis/goid v0.0.0-20180202154549-b0b1615b78e5 // indirect
 	github.com/pion/logging v0.2.2
 	github.com/pion/rtcp v1.2.1
 	github.com/pion/rtp v1.4.0

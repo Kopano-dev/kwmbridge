@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/justinas/alice"
 	"github.com/longsleep/go-metrics/loggedwriter"
 	"github.com/longsleep/go-metrics/timing"
 	"github.com/sirupsen/logrus"
@@ -45,6 +46,8 @@ func NewServer(c *cfg.Config) (*Server, error) {
 
 		listenAddr: c.ListenAddr,
 		logger:     c.Logger,
+
+		requestLog: true,
 	}
 
 	return s, nil
@@ -57,26 +60,24 @@ func (s *Server) WithMetrics(next http.Handler) http.Handler {
 		// Create per request cancel context.
 		ctx, cancel := context.WithCancel(req.Context())
 
-		if s.requestLog {
-			loggedWriter := metrics.NewLoggedResponseWriter(rw)
-			// Create per request context.
-			ctx = timing.NewContext(ctx, func(duration time.Duration) {
-				// This is the stop callback, called when complete with duration.
-				durationMs := float64(duration) / float64(time.Millisecond)
-				// Log request.
-				s.logger.WithFields(logrus.Fields{
-					"status":     loggedWriter.Status(),
-					"method":     req.Method,
-					"path":       req.URL.Path,
-					"remote":     req.RemoteAddr,
-					"duration":   durationMs,
-					"referer":    req.Referer(),
-					"user-agent": req.UserAgent(),
-					"origin":     req.Header.Get("Origin"),
-				}).Debug("HTTP request complete")
-			})
-			rw = loggedWriter
-		}
+		loggedWriter := metrics.NewLoggedResponseWriter(rw)
+		// Create per request context.
+		ctx = timing.NewContext(ctx, func(duration time.Duration) {
+			// This is the stop callback, called when complete with duration.
+			durationMs := float64(duration) / float64(time.Millisecond)
+			// Log request.
+			s.logger.WithFields(logrus.Fields{
+				"status":     loggedWriter.Status(),
+				"method":     req.Method,
+				"path":       req.URL.Path,
+				"remote":     req.RemoteAddr,
+				"duration":   durationMs,
+				"referer":    req.Referer(),
+				"user-agent": req.UserAgent(),
+				"origin":     req.Header.Get("Origin"),
+			}).Debug("HTTP request complete")
+		})
+		rw = loggedWriter
 
 		// Run the request.
 		next.ServeHTTP(rw, req.WithContext(ctx))
@@ -96,9 +97,9 @@ func (s *Server) AddContext(parent context.Context, next http.Handler) http.Hand
 
 // AddRoutes add the accociated Servers URL routes to the provided router with
 // the provided context.Context.
-func (s *Server) AddRoutes(ctx context.Context, router *mux.Router) http.Handler {
+func (s *Server) AddRoutes(ctx context.Context, router *mux.Router, chain alice.Chain) http.Handler {
 	// TODO(longsleep): Add subpath support to all handlers and paths.
-	router.Handle("/health-check", s.WithMetrics(http.HandlerFunc(s.HealthCheckHandler)))
+	router.Handle("/health-check", chain.ThenFunc(s.HealthCheckHandler))
 
 	return router
 }
@@ -149,9 +150,13 @@ func (s *Server) Serve(ctx context.Context) error {
 
 	// HTTP services.
 	router := mux.NewRouter()
+	commonHandlers := alice.New()
+	if s.requestLog {
+		commonHandlers = commonHandlers.Append(s.WithMetrics)
+	}
 
 	// Basic routes provided by server.
-	s.AddRoutes(ctx, router)
+	s.AddRoutes(ctx, router, commonHandlers)
 
 	errCh := make(chan error, 2)
 	exitCh := make(chan bool, 1)
@@ -172,7 +177,7 @@ func (s *Server) Serve(ctx context.Context) error {
 
 	if true {
 		apiv0Service := apiv0.NewHTTPService(serveCtx, logger, services)
-		apiv0Service.AddRoutes(ctx, router, nil)
+		apiv0Service.AddRoutes(ctx, router, commonHandlers)
 	}
 
 	wg := &sync.WaitGroup{}

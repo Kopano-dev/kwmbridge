@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
+	"github.com/justinas/alice"
 	"github.com/sirupsen/logrus"
 
 	cfg "stash.kopano.io/kwm/kwmbridge/config"
@@ -34,7 +35,7 @@ func newTestServer(ctx context.Context, t *testing.T) (*httptest.Server, *Server
 		t.Fatal(err)
 	}
 	router := mux.NewRouter()
-	server.AddRoutes(ctx, router)
+	server.AddRoutes(ctx, router, alice.New())
 
 	s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		router.ServeHTTP(rw, req)

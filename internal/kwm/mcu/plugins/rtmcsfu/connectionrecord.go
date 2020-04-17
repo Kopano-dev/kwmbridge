@@ -54,9 +54,10 @@ type ConnectionRecord struct {
 
 	guid string
 
-	tracks  map[uint32]*webrtc.Track
-	senders map[uint32]*webrtc.RTPSender
-	pending map[uint32]*TrackRecord
+	tracks    map[uint32]*webrtc.Track
+	senders   map[uint32]*webrtc.RTPSender
+	receivers map[uint32]*webrtc.RTPReceiver
+	pending   map[uint32]*TrackRecord
 
 	rtcpCh          chan *RTCPRecord
 	rtpPayloadTypes map[string]uint8
@@ -85,9 +86,10 @@ func NewConnectionRecord(parentCtx context.Context, owner *UserRecord, target st
 		needsNegotiation: make(chan bool, 1), // Allow exactly one.
 		iceComplete:      make(chan bool),
 
-		tracks:  make(map[uint32]*webrtc.Track),
-		senders: make(map[uint32]*webrtc.RTPSender),
-		pending: make(map[uint32]*TrackRecord),
+		tracks:    make(map[uint32]*webrtc.Track),
+		senders:   make(map[uint32]*webrtc.RTPSender),
+		receivers: make(map[uint32]*webrtc.RTPReceiver),
+		pending:   make(map[uint32]*TrackRecord),
 
 		rtpPayloadTypes: make(map[string]uint8),
 	}
@@ -181,6 +183,7 @@ func (record *ConnectionRecord) reset(parentCtx context.Context) {
 	record.requestedTransceivers = &sync.Map{}
 	record.tracks = make(map[uint32]*webrtc.Track)
 	record.senders = make(map[uint32]*webrtc.RTPSender)
+	record.receivers = make(map[uint32]*webrtc.RTPReceiver)
 	record.pending = make(map[uint32]*TrackRecord)
 	if record.rtcpCh != nil {
 		record.rtcpCh <- nil // Closes subscribers.
@@ -529,6 +532,7 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 			}
 			trackLogger.WithField("sfu_track_ssrc", videoTrack.SSRC()).Debugln("ttt created new sfu video track")
 			connectionRecord.tracks[senderTrackVideo] = videoTrack
+			connectionRecord.receivers[senderTrackVideo] = receiver
 			connectionRecord.Unlock()
 
 			localTrack = videoTrack
@@ -555,6 +559,7 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 			}
 			trackLogger.WithField("sfu_track_ssrc", audioTrack.SSRC()).Debugln("ttt created new sfu audio track")
 			connectionRecord.tracks[senderTrackAudio] = audioTrack
+			connectionRecord.receivers[senderTrackAudio] = receiver
 			connectionRecord.Unlock()
 
 			localTrack = audioTrack
@@ -687,6 +692,7 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 
 				connectionRecord.Lock()
 				delete(connectionRecord.tracks, localTrackRef)
+				delete(connectionRecord.receivers, localTrackRef)
 				connectionRecord.Unlock()
 
 				// Make track unavailable for forwarding.

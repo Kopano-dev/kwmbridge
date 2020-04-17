@@ -10,9 +10,12 @@ import (
 	"net/url"
 
 	"github.com/sirupsen/logrus"
+
+	"stash.kopano.io/kwm/kwmbridge/internal/kwm/utils"
 )
 
 type Client struct {
+	id  string
 	uri *url.URL
 
 	config *Config
@@ -25,6 +28,7 @@ func NewClient(uri *url.URL, cfg *Config) (*Client, error) {
 	}
 
 	c := &Client{
+		id:     utils.NewRandomGUID(),
 		config: cfg,
 		logger: cfg.Logger,
 	}

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/orcaman/concurrent-map"
@@ -28,6 +29,9 @@ const (
 )
 
 type Client struct {
+	mutex sync.RWMutex
+	id    string
+
 	c *kwm.Client
 
 	baseURI string
@@ -44,7 +48,8 @@ type Client struct {
 
 func NewClient(c *kwm.Client, options *Options) (*Client, error) {
 	mcu := &Client{
-		c: c,
+		c:  c,
+		id: utils.NewRandomGUID(),
 
 		baseURI: c.GetBaseURI() + "/api/kwm/v2/mcu",
 
@@ -60,6 +65,10 @@ func NewClient(c *kwm.Client, options *Options) (*Client, error) {
 	return mcu, nil
 }
 
+func (mcu *Client) ID() string {
+	return mcu.id
+}
+
 func (mcu *Client) Start(ctx context.Context) error {
 	baseURI, err := utils.AsWebsocketURL(mcu.baseURI)
 	if err != nil {
@@ -67,7 +76,8 @@ func (mcu *Client) Start(ctx context.Context) error {
 	}
 	uri := baseURI + "/websocket"
 
-	mcu.wsCtx, mcu.wsCancel = context.WithCancel(ctx)
+	mcu.mutex.Lock()
+	wsCtx, wsCancel := context.WithCancel(ctx)
 
 	// TODO(longsleep): Add timeout via context.
 
@@ -75,36 +85,45 @@ func (mcu *Client) Start(ctx context.Context) error {
 		HTTPClient:   mcu.options.HTTPClient,
 		Subprotocols: []string{"kwmmcu-protocol"},
 	}
-	ws, _, err := websocket.Dial(mcu.wsCtx, uri, options)
+	ws, _, err := websocket.Dial(wsCtx, uri, options)
 	if err != nil {
+		wsCancel()
+		mcu.mutex.Unlock()
 		return fmt.Errorf("failed to connect mcu API websocket: %w", err)
 	}
 
 	ws.SetReadLimit(websocketMaxMessageSize)
 
+	mcu.logger.Infoln("mcu API connection connection established")
 	mcu.ws = ws
+	mcu.wsCtx = wsCtx
+	mcu.wsCancel = wsCancel
+	mcu.mutex.Unlock()
 
 	errCh := make(chan error, 1)
 
 	go func() {
-		mcu.logger.Infoln("mcu API connection connection established")
-		readPumpErr := mcu.readPump() // This blocks.
-		errCh <- readPumpErr          // Always send result, to unblock cleanup.
+		readPumpErr := mcu.readPump(ctx, ws) // This blocks.
+		errCh <- readPumpErr                 // Always send result, to unblock cleanup.
 	}()
 
 	err = <-errCh
-	mcu.wsCancel()
+	wsCancel()
+
+	mcu.mutex.Lock()
+	mcu.ws = nil
+	mcu.mutex.Unlock()
 
 	return err
 }
 
-func (mcu *Client) readPump() error {
+func (mcu *Client) readPump(ctx context.Context, ws *websocket.Conn) error {
 	var mt websocket.MessageType
 	var reader io.Reader
 	var b *bytes.Buffer
 	var err error
 	for {
-		mt, reader, err = mcu.ws.Reader(mcu.wsCtx)
+		mt, reader, err = ws.Reader(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return nil
@@ -141,7 +160,7 @@ func (mcu *Client) readPump() error {
 
 		switch message.Type {
 		case "attach", "detach":
-			err = mcu.handleWebsocketMessage(message)
+			err = mcu.handleWebsocketMessage(ctx, message)
 
 		default:
 			mcu.logger.WithField("type", message.Type).Warnln("mcu API connection received unknown mcu message type")
@@ -155,7 +174,7 @@ func (mcu *Client) readPump() error {
 	}
 }
 
-func (mcu *Client) handleWebsocketMessage(message *kwm.MCUTypeContainer) error {
+func (mcu *Client) handleWebsocketMessage(ctx context.Context, message *kwm.MCUTypeContainer) error {
 	//mcu.logger.Debugln("xxx known message", message.Type, message.Transaction)
 
 	switch message.Type {
@@ -180,7 +199,7 @@ func (mcu *Client) handleWebsocketMessage(message *kwm.MCUTypeContainer) error {
 			HTTPClient:   mcu.options.HTTPClient,
 			Subprotocols: []string{"kwmmcu-protocol"},
 		}
-		ws, _, err := websocket.Dial(mcu.wsCtx, uri, options)
+		ws, _, err := websocket.Dial(ctx, uri, options)
 		if err != nil {
 			return fmt.Errorf("failed to connect mcu API transaction websocket: %w", err)
 		}
@@ -198,8 +217,9 @@ func (mcu *Client) handleWebsocketMessage(message *kwm.MCUTypeContainer) error {
 		}
 
 		mcu.attached.Set(message.Transaction, &AttachedRecord{
-			when:   time.Now(),
-			plugin: plugin,
+			when:    time.Now(),
+			plugin:  plugin,
+			message: message,
 		})
 		go func() {
 			defer func() {
@@ -210,7 +230,7 @@ func (mcu *Client) handleWebsocketMessage(message *kwm.MCUTypeContainer) error {
 			}()
 
 			// Start plugin, this blocks.
-			pluginErr := plugin.Start(mcu.wsCtx)
+			pluginErr := plugin.Start(ctx)
 			if pluginErr != nil {
 				logger.WithError(pluginErr).Errorln("mcu API plugin exit with error")
 			} else {
@@ -246,10 +266,19 @@ func (mcu *Client) handleWebsocketMessage(message *kwm.MCUTypeContainer) error {
 }
 
 func (mcu *Client) ping() error {
-	ctx, cancel := context.WithTimeout(mcu.wsCtx, 10*time.Second)
+	mcu.mutex.RLock()
+	ws := mcu.ws
+	wsCtx := mcu.wsCtx
+	mcu.mutex.RUnlock()
+
+	if ws == nil {
+		return errors.New("no connection")
+	}
+
+	ctx, cancel := context.WithTimeout(wsCtx, 10*time.Second)
 	defer cancel()
 
-	err := mcu.ws.Ping(ctx)
+	err := ws.Ping(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to communicate with mcu API websocket: %w", err)
 	}
@@ -257,6 +286,24 @@ func (mcu *Client) ping() error {
 }
 
 func (mcu *Client) Close() error {
-	mcu.wsCancel()
+	mcu.mutex.Lock()
+	defer mcu.mutex.Unlock()
+
+	if mcu.wsCancel != nil {
+		mcu.wsCancel()
+	}
 	return nil
+}
+
+func (mcu *Client) Resource() *ClientResource {
+	mcu.mutex.RLock()
+	defer mcu.mutex.RUnlock()
+
+	return &ClientResource{
+		client: mcu,
+
+		ID:        mcu.id,
+		URI:       mcu.baseURI,
+		Connected: mcu.ws != nil,
+	}
 }

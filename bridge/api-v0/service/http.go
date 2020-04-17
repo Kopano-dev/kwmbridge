@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/justinas/alice"
 	"github.com/sirupsen/logrus"
 
 	"stash.kopano.io/kwm/kwmbridge/bridge"
@@ -36,33 +37,22 @@ func NewHTTPService(ctx context.Context, logger logrus.FieldLogger, services *br
 
 // AddRoutes configures the services HTTP end point routing on the provided
 // context and router.
-func (h *HTTPService) AddRoutes(ctx context.Context, router *mux.Router, wrapper func(http.Handler) http.Handler) http.Handler {
+func (h *HTTPService) AddRoutes(ctx context.Context, router *mux.Router, chain alice.Chain) http.Handler {
 	v0 := router.PathPrefix(URIPrefix).Subrouter()
-	if wrapper == nil {
-		wrapper = func(next http.Handler) http.Handler {
-			return next
-		}
-	}
 
 	if mcucm, ok := h.services.MCUCManager.(*mcuc.Manager); ok {
 		r := v0.PathPrefix("/bridge/mcuc").Subrouter()
-		// /api/kwm/v0/bridge/mcuc/clients
-		// /api/kwm/v0/bridge/mcuc/clients/:clientid/attached
-		r.Handle("/clients", wrapper(mcucm.MakeHTTPMCUCHandler()))
-	}
 
-	// /api/kwm/v0/bridge/mcu/clients
-	// /api/kwm/v0/bridge/mcu/clients/:clientid/attached
-	// /api/kwm/v0/bridge/mcu/clients/:clientid/attached/:transaction
-	// /api/kwm/v0/bridge/mcu/clients/:clientid/attached/:transaction/rtmcsfu
-	// /api/kwm/v0/bridge/mcu/clients/:clientid/attached/:transaction/rtmcsfu/channel
-	// /api/kwm/v0/bridge/mcu/clients/:clientid/attached/:transaction/rtmcsfu/channel/users
-	// /api/kwm/v0/bridge/mcu/clients/:clientid/attached/:transaction/rtmcsfu/channel/users/:userid/senders
-	// /api/kwm/v0/bridge/mcu/clients/:clientid/attached/:transaction/rtmcsfu/channel/users/:userid/connections
-	// /api/kwm/v0/bridge/mcu/clients/:clientid/attached/:transaction/rtmcsfu/channel/users/:userid/connections/:connectionid/tracks
-	// /api/kwm/v0/bridge/mcu/clients/:clientid/attached/:transaction/rtmcsfu/channel/users/:userid/connections/:connectionid/senders
-	// /api/kwm/v0/bridge/mcu/clients/:clientid/attached/:transaction/rtmcsfu/channel/users/:userid/connections/:connectionid/pending
-	// /api/kwm/v0/bridge/mcu/clients/:clientid/attached/:transaction/rtmcsfu/channel/users/:userid/connections/:connectionid/p2p/connections
+		// /api/kwm/v0/bridge/mcuc/clients
+		// /api/kwm/v0/bridge/mcuc/clients/:client/attached
+		// /api/kwm/v0/bridge/mcuc/clients/:client/attached/:transaction
+		// /api/kwm/v0/bridge/mcuc/clients/:client/attached/:transaction/:bridge
+		r.Handle("/clients", chain.ThenFunc(mcucm.HTTPClientsHandler))
+		r.Handle("/clients/{clientID}", chain.ThenFunc(mcucm.HTTPClientsHandler))
+		r.Handle("/clients/{clientID}/attached", chain.ThenFunc(mcucm.HTTPClientsAttachedHandler))
+		r.Handle("/clients/{clientID}/attached/{attachedID}", chain.ThenFunc(mcucm.HTTPClientsAttachedHandler))
+		r.PathPrefix("/clients/{clientID}/attached/{attachedID}/{bridgeID}").Handler(chain.ThenFunc(mcucm.HTTPClientsAttachedBridgeHandler))
+	}
 
 	return router
 }

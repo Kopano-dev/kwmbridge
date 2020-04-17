@@ -15,6 +15,7 @@ import (
 type Plugin interface {
 	Start(context.Context) error
 	Close() error
+	Bridge() string
 }
 
 type AttachPluginFactoryFunc func(attach *kwm.MCUTypeContainer, ws *websocket.Conn, options *Options) (Plugin, error)

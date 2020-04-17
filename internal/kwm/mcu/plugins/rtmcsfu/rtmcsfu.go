@@ -14,6 +14,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/gorilla/mux"
 	"github.com/pion/webrtc/v2"
 	"github.com/sasha-s/go-deadlock"
 	"github.com/sirupsen/logrus"
@@ -37,6 +38,7 @@ const (
 
 const (
 	maxChSize = 100
+	bridgeID  = "rtmcsfu"
 )
 
 const (
@@ -58,6 +60,8 @@ type RTMChannelSFU struct {
 	options *mcu.Options
 	logger  logrus.FieldLogger
 
+	router *mux.Router
+
 	wsCtx    context.Context
 	wsCancel context.CancelFunc
 	ws       *websocket.Conn
@@ -70,7 +74,7 @@ type RTMChannelSFU struct {
 
 func New(attach *kwm.MCUTypeContainer, ws *websocket.Conn, options *mcu.Options) (mcu.Plugin, error) {
 	logger := options.Logger.WithFields(logrus.Fields{
-		"bridge":      "rtmcsfu",
+		"bridge":      bridgeID,
 		"transaction": attach.Transaction,
 		"plugin":      attach.Plugin,
 	})
@@ -139,11 +143,15 @@ func New(attach *kwm.MCUTypeContainer, ws *websocket.Conn, options *mcu.Options)
 		}
 	}
 
+	router := mux.NewRouter()
+
 	// TODO(longsleep): Set more settings.
 
 	sfu := &RTMChannelSFU{
 		options: options,
 		logger:  logger,
+
+		router: router,
 
 		ws: ws,
 
@@ -154,7 +162,13 @@ func New(attach *kwm.MCUTypeContainer, ws *websocket.Conn, options *mcu.Options)
 		},
 	}
 
+	sfu.addRoutes()
+
 	return sfu, nil
+}
+
+func (sfu *RTMChannelSFU) Bridge() string {
+	return bridgeID
 }
 
 func (sfu *RTMChannelSFU) Start(ctx context.Context) error {

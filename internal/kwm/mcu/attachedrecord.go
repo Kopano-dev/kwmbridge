@@ -8,10 +8,13 @@ package mcu
 import (
 	"sync"
 	"time"
+
+	"stash.kopano.io/kwm/kwmbridge/internal/kwm"
 )
 
 type AttachedRecord struct {
 	sync.Mutex
-	when   time.Time
-	plugin Plugin
+	when    time.Time
+	plugin  Plugin
+	message *kwm.MCUTypeContainer
 }
