@@ -47,7 +47,7 @@ func NewServer(c *cfg.Config) (*Server, error) {
 		listenAddr: c.ListenAddr,
 		logger:     c.Logger,
 
-		requestLog: true,
+		requestLog: false,
 	}
 
 	return s, nil
