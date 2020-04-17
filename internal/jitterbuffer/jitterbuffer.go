@@ -30,6 +30,7 @@ package jitterbuffer
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/pion/rtcp"
@@ -57,10 +58,8 @@ type JitterBuffer struct {
 	logger logrus.FieldLogger
 	ctx    context.Context
 
-	buffers   map[uint32]*Buffer
-	rtcpCh    chan rtcp.Packet
-	bandwidth uint64
-	lostRate  float64
+	buffers sync.Map
+	rtcpCh  chan rtcp.Packet
 
 	config *Config
 }
@@ -71,8 +70,7 @@ func New(id string, config *Config) *JitterBuffer {
 
 		logger: config.Logger,
 
-		buffers: make(map[uint32]*Buffer),
-		rtcpCh:  make(chan rtcp.Packet, 100),
+		rtcpCh: make(chan rtcp.Packet, 100),
 
 		config: config,
 	}
@@ -100,8 +98,14 @@ func (j *JitterBuffer) Start(ctx context.Context) error {
 }
 
 func (j *JitterBuffer) Stop() {
-	for _, buffer := range j.buffers {
-		buffer.Stop()
+	var buffers []*Buffer
+	j.buffers.Range(func(key interface{}, value interface{}) bool {
+		buffers = append(buffers, value.(*Buffer))
+		j.buffers.Delete(key)
+		return true
+	})
+	for _, b := range buffers {
+		b.Stop()
 	}
 }
 
@@ -130,13 +134,15 @@ func (j *JitterBuffer) startPLILoop() {
 		case <-time.After(time.Duration(j.config.PLIInterval) * time.Second):
 		}
 
-		for _, buffer := range j.GetBuffers() {
-			if buffer.IsVideo() {
+		j.buffers.Range(func(key interface{}, value interface{}) bool {
+			b := value.(*Buffer)
+			if b.IsVideo() {
 				//j.logger.WithField("id", j.id).Debugln("jjj pli loop")
-				pli := &rtcp.PictureLossIndication{SenderSSRC: buffer.GetSSRC(), MediaSSRC: buffer.GetSSRC()}
+				pli := &rtcp.PictureLossIndication{SenderSSRC: b.GetSSRC(), MediaSSRC: b.GetSSRC()}
 				j.rtcpCh <- pli
 			}
-		}
+			return true
+		})
 	}
 }
 
@@ -165,20 +171,29 @@ func (j *JitterBuffer) startRembLoop() {
 		case <-time.After(time.Duration(j.config.RembInterval) * time.Second):
 		}
 
-		for _, buffer := range j.GetBuffers() {
-			j.lostRate, j.bandwidth = buffer.GetLostRateBandwidth(uint64(j.config.RembInterval))
-			/*j.logger.WithFields(logrus.Fields{
-				"jitter_id": j.id,
-				"lostRate":  j.lostRate,
-				"bandwidth": j.bandwidth,
-			}).Debugln("jjj remb loop")*/
+		var lostRate float64
+		var bandwidth uint64
+		j.buffers.Range(func(key interface{}, value interface{}) bool {
+			b := value.(*Buffer)
+			lostRate, bandwidth = b.GetLostRateBandwidth(uint64(j.config.RembInterval))
+			if false {
+				j.logger.WithFields(logrus.Fields{
+					"jitter_id":   j.id,
+					"ssrc":        b.GetSSRC(),
+					"lostRate":    lostRate,
+					"bandwidth":   bandwidth,
+					"payloadType": b.GetPayloadType(),
+					"isVideo":     b.IsVideo(),
+				}).Debugln("jjj remb loop")
+			}
 			var bw uint64
-			if j.lostRate == 0 && j.bandwidth == 0 {
+			switch {
+			case lostRate == 0 && bandwidth == 0:
 				bw = uint64(j.config.Bandwidth)
-			} else if j.lostRate >= 0 && j.lostRate < 0.1 {
-				bw = uint64(j.bandwidth * 2)
-			} else {
-				bw = uint64(float64(j.bandwidth) * (1 - j.lostRate))
+			case lostRate >= 0 && lostRate < 0.1:
+				bw = bandwidth * 2
+			default:
+				bw = uint64(float64(bandwidth) * (1 - lostRate))
 			}
 
 			if bw < minBandwidth {
@@ -190,12 +205,14 @@ func (j *JitterBuffer) startRembLoop() {
 			}
 
 			remb := &rtcp.ReceiverEstimatedMaximumBitrate{
-				SenderSSRC: buffer.GetSSRC(),
+				SenderSSRC: b.GetSSRC(),
 				Bitrate:    bw * 1000,
-				SSRCs:      []uint32{buffer.GetSSRC()},
+				SSRCs:      []uint32{b.GetSSRC()},
 			}
 			j.rtcpCh <- remb
-		}
+
+			return true
+		})
 	}
 }
 
@@ -208,6 +225,10 @@ func (j *JitterBuffer) startNackLoop(b *Buffer) {
 			return
 		case nack := <-b.GetRTCPChan():
 			//j.logger.WithField("jitter_id", j.id).Debugln("zzz nack loop nack", nack)
+			if nack == nil {
+				// Channel was closed.
+				return
+			}
 			j.rtcpCh <- nack
 		}
 	}
@@ -223,17 +244,37 @@ func (j *JitterBuffer) GetRTCPChan() chan rtcp.Packet {
 
 func (j *JitterBuffer) AddBuffer(ssrc uint32, payloadType uint8, isVideo bool) *Buffer {
 	b := NewBuffer(ssrc, payloadType, isVideo)
-	j.buffers[ssrc] = b
+	value, loaded := j.buffers.LoadOrStore(ssrc, b)
+	if loaded {
+		return value.(*Buffer)
+	}
 	go j.startNackLoop(b)
 	return b
 }
 
 func (j *JitterBuffer) GetBuffer(ssrc uint32) *Buffer {
-	return j.buffers[ssrc]
+	b, loaded := j.buffers.Load(ssrc)
+	if !loaded {
+		return nil
+	}
+	return b.(*Buffer)
+}
+
+func (j *JitterBuffer) RemoveBuffer(ssrc uint32) {
+	b, loaded := j.buffers.Load(ssrc)
+	if loaded {
+		j.buffers.Delete(ssrc)
+		b.(*Buffer).Stop()
+	}
 }
 
 func (j *JitterBuffer) GetBuffers() map[uint32]*Buffer {
-	return j.buffers
+	buffers := make(map[uint32]*Buffer)
+	j.buffers.Range(func(key interface{}, value interface{}) bool {
+		buffers[key.(uint32)] = value.(*Buffer)
+		return true
+	})
+	return buffers
 }
 
 func (j *JitterBuffer) PushRTP(pkt *rtp.Packet, isVideo bool) error {
@@ -243,18 +284,15 @@ func (j *JitterBuffer) PushRTP(pkt *rtp.Packet, isVideo bool) error {
 	if buffer == nil {
 		buffer = j.AddBuffer(ssrc, pkt.PayloadType, isVideo)
 	}
-	if buffer == nil {
-		return errors.New("buffer is nil")
-	}
 
 	buffer.Push(pkt)
 	return nil
 }
 
 func (j *JitterBuffer) GetPacket(ssrc uint32, sn uint16) *rtp.Packet {
-	buffer := j.buffers[ssrc]
-	if buffer == nil {
+	b, loaded := j.buffers.Load(ssrc)
+	if !loaded {
 		return nil
 	}
-	return buffer.GetPacket(sn)
+	return b.(*Buffer).GetPacket(sn)
 }

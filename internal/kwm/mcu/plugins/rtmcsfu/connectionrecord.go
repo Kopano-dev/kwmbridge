@@ -62,7 +62,7 @@ type ConnectionRecord struct {
 	rtcpCh          chan *RTCPRecord
 	rtpPayloadTypes map[string]uint8
 
-	jitterbuffer *jitterbuffer.JitterBuffer
+	jitterBuffer *jitterbuffer.JitterBuffer
 
 	p2p *P2PController
 }
@@ -99,7 +99,7 @@ func NewConnectionRecord(parentCtx context.Context, owner *UserRecord, target st
 	if pipeline != nil {
 		// This is a sender (sfu receives), add jitter.
 		jitterLogger := owner.channel.logger.WithField("source", owner.id)
-		record.jitterbuffer = jitterbuffer.New(target, &jitterbuffer.Config{
+		record.jitterBuffer = jitterbuffer.New(target, &jitterbuffer.Config{
 			Logger: jitterLogger,
 
 			// TODO(longsleep): Figure out best values.
@@ -107,13 +107,13 @@ func NewConnectionRecord(parentCtx context.Context, owner *UserRecord, target st
 			RembInterval: 3,
 			Bandwidth:    2000,
 		})
-		err := record.jitterbuffer.Start(ctx)
+		err := record.jitterBuffer.Start(ctx)
 		if err != nil {
 			panic(err)
 		}
 
 		// Jitter.
-		jitterRtcpCh := record.jitterbuffer.GetRTCPChan()
+		jitterRtcpCh := record.jitterBuffer.GetRTCPChan()
 		go func() {
 			for {
 				select {
@@ -463,7 +463,7 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 						//logger.Debugln("aaa rtcp transport layer nack", pkt)
 						nack := pkt.(*rtcp.TransportLayerNack)
 						for _, nackPair := range nack.Nacks {
-							foundPkt := connectionRecord.jitterbuffer.GetPacket(nack.MediaSSRC, nackPair.PacketID)
+							foundPkt := connectionRecord.jitterBuffer.GetPacket(nack.MediaSSRC, nackPair.PacketID)
 							if foundPkt == nil {
 								//logger.Debugln("aaa rtcp transport layer nack not found")
 								// Not found in buffer, notify sender.
@@ -583,7 +583,7 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 
 					count++
 					// Write to tracks non blocking.
-					func(idx uint64) {
+					func() {
 						var payloadType uint8
 						channel.connections.IterCb(func(id string, record interface{}) {
 							if record == sourceRecord {
@@ -615,7 +615,7 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 							pkt.Header.PayloadType = payloadType
 
 							if track != nil {
-								/*if idx%1000 == 0 {
+								/*if count%1000 == 0 {
 									trackLogger.WithFields(logrus.Fields{
 										"count":               idx,
 										"target":              targetRecord.id,
@@ -623,23 +623,26 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 										"local_payload_type":  localCodec.PayloadType,
 										"remote_payload_type": payloadType,
 									}).Debugln("ttt send pkg to subscriber")
+									count = 0
 								}*/
 								if writeErr := track.WriteRTP(pkt); writeErr != nil {
 									trackLogger.WithError(writeErr).WithField("sfu_track_src", pkt.SSRC).Errorln("ttt failed to write to sfu track")
 								}
 							} else {
-								if idx%1000 == 0 {
+								if count%1000 == 0 {
 									trackLogger.WithField("sfu_track_src", pkt.SSRC).Warnln("ttt unknown target track")
+									count = 0
 								}
 							}
 						})
-					}(count)
+					}()
 				}
 			}()
 
 			// Handle incoming track RTP.
 			go func() {
 				defer func() {
+					connectionRecord.jitterBuffer.RemoveBuffer(localTrack.SSRC())
 					close(subCh)
 				}()
 
@@ -652,7 +655,7 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 					subCh <- pkt
 
 					if isVideo {
-						pushErr := connectionRecord.jitterbuffer.PushRTP(pkt, isVideo)
+						pushErr := connectionRecord.jitterBuffer.PushRTP(pkt, isVideo)
 						if pushErr != nil {
 							trackLogger.WithError(pushErr).WithField("sfu_track_src", pkt.SSRC).Errorln("ttt failed to push to jitter")
 						}

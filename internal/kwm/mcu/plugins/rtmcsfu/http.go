@@ -14,6 +14,7 @@ import (
 	kwmapi "stash.kopano.io/kwm/kwmserver/signaling/api-v1"
 
 	api "stash.kopano.io/kwm/kwmbridge/bridge/api-v0"
+	"stash.kopano.io/kwm/kwmbridge/internal/jitterbuffer"
 )
 
 func (sfu *RTMChannelSFU) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
@@ -277,7 +278,7 @@ func NewChannelConnectionResource(connectionRecord *ConnectionRecord) *ChannelCo
 
 		RTPPayloadTypes: connectionRecord.rtpPayloadTypes,
 
-		// TODO(longsleep): Add Jitterbuffer fields.
+		JitterBuffer: NewJitterBufferResource(connectionRecord.jitterBuffer),
 	}
 
 	for key, track := range connectionRecord.tracks {
@@ -364,4 +365,40 @@ type ConnectionTrackRecordResource struct {
 	Track           *ConnectionTrackResource   `json:"track"`
 	IsRemove        bool                       `json:"IsRemove"`
 	WithTransceiver bool                       `json:"WithTransceiver"`
+}
+
+type JitterBufferResource struct {
+	ID      string                                 `json:"id"`
+	Buffers map[uint32]*JitterBufferBufferResource `json:"buffers"`
+}
+
+func NewJitterBufferResource(jitterBuffer *jitterbuffer.JitterBuffer) *JitterBufferResource {
+	if jitterBuffer == nil {
+		return nil
+	}
+
+	buffers := make(map[uint32]*JitterBufferBufferResource)
+	for ssrc, b := range jitterBuffer.GetBuffers() {
+		lostRate, byteRate := b.GetCurrentRates()
+		buffers[ssrc] = &JitterBufferBufferResource{
+			IsVideo:     b.IsVideo(),
+			PayloadType: b.GetPayloadType(),
+
+			LostRate:  float64(lostRate) / 100,
+			Bandwidth: byteRate * 8 / 1000, // Kbps
+		}
+	}
+
+	return &JitterBufferResource{
+		ID:      jitterBuffer.ID(),
+		Buffers: buffers,
+	}
+}
+
+type JitterBufferBufferResource struct {
+	IsVideo     bool  `json:"isVideo"`
+	PayloadType uint8 `json:"payloadType"`
+
+	LostRate  float64 `json:"lostRate"`
+	Bandwidth uint64  `json:"bandwidth"`
 }

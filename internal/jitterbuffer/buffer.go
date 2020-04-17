@@ -28,6 +28,8 @@
 package jitterbuffer
 
 import (
+	"sync/atomic"
+
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 )
@@ -71,6 +73,9 @@ type Buffer struct {
 	rtcpCh chan rtcp.Packet
 
 	totalByte uint64
+
+	currentLostRate uint64
+	currentByteRate uint64
 }
 
 func NewBuffer(ssrc uint32, payloadType uint8, isVideo bool) *Buffer {
@@ -210,7 +215,7 @@ func (b *Buffer) GetNackPair(buffer [maxSN]*rtp.Packet, begin, end uint16) (rtcp
 	for i := lost; i < end; i++ {
 		// Calc from next lost packet.
 		if i > lost && buffer[i] == nil {
-			blp = blp | (1 << (i - lost - 1))
+			blp |= (1 << (i - lost - 1))
 			lostPkt++
 		}
 	}
@@ -222,7 +227,15 @@ func (b *Buffer) GetLostRateBandwidth(cycle uint64) (float64, uint64) {
 	lostRate := float64(b.lostPkt) / float64(b.receivedPkt+b.lostPkt)
 	byteRate := b.totalByte / cycle
 	b.receivedPkt, b.lostPkt, b.totalByte = 0, 0, 0
+	atomic.StoreUint64(&b.currentLostRate, uint64(lostRate*100)) // Percent.
+	atomic.StoreUint64(&b.currentByteRate, byteRate)             // Byte per second.
 	return lostRate, byteRate * 8 / 1000
+}
+
+func (b *Buffer) GetCurrentRates() (lostRate, byteRate uint64) {
+	lostRate = atomic.LoadUint64(&b.currentLostRate)
+	byteRate = atomic.LoadUint64(&b.currentByteRate)
+	return
 }
 
 func (b *Buffer) GetPacket(sn uint16) *rtp.Packet {
