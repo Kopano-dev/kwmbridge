@@ -302,8 +302,9 @@ func (mcu *Client) Resource() *ClientResource {
 	return &ClientResource{
 		client: mcu,
 
-		ID:        mcu.id,
-		URI:       mcu.baseURI,
-		Connected: mcu.ws != nil,
+		ID:            mcu.id,
+		URI:           mcu.baseURI,
+		Connected:     mcu.ws != nil,
+		AttachedCount: mcu.attached.Count(),
 	}
 }

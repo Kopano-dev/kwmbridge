@@ -44,21 +44,22 @@ func (sfu *RTMChannelSFU) addRoutes() {
 }
 
 func (sfu *RTMChannelSFU) HTTPRootHandler(rw http.ResponseWriter, req *http.Request) {
-	sfu.RLock()
-	defer sfu.RUnlock()
+	summary := sfu.Summary()
 
 	resource := &RootResource{}
-	if sfu.channel != nil {
-		resource.HasChannel = sfu.channel != nil
+	if summary != nil {
+		resource.HasChannel = true
+		resource.Summary = summary
 	}
 
-	if writeErr := api.WriteResourceAsJSON(rw, resource); writeErr != nil {
+	if writeErr := api.WriteResourceAsItemResourceResponseJSON(rw, req, resource); writeErr != nil {
 		sfu.logger.WithError(writeErr).Errorln("failed to write json response")
 	}
 }
 
 type RootResource struct {
-	HasChannel bool `json:"hasChannel"`
+	HasChannel bool        `json:"hasChannel"`
+	Summary    interface{} `json:"summary"`
 }
 
 func (sfu *RTMChannelSFU) HTTPChannelHandler(rw http.ResponseWriter, req *http.Request) {
@@ -84,7 +85,7 @@ func (sfu *RTMChannelSFU) HTTPChannelHandler(rw http.ResponseWriter, req *http.R
 		UserCount: uint64(channel.connections.Count()),
 	}
 
-	if writeErr := api.WriteResourceAsJSON(rw, resource); writeErr != nil {
+	if writeErr := api.WriteResourceAsItemResourceResponseJSON(rw, req, resource); writeErr != nil {
 		sfu.logger.WithError(writeErr).Errorln("failed to write json response")
 	}
 }
@@ -134,10 +135,7 @@ func (sfu *RTMChannelSFU) HTTPChannelUsersHandler(rw http.ResponseWriter, req *h
 			users = append(users, NewChannelUserResource(userRecord))
 		})
 
-		resource = &api.CollectionResource{
-			ODataContext: req.URL.Path,
-			Values:       users,
-		}
+		resource = api.NewCollectionResource(users, req, nil)
 	} else {
 		user, found := channel.connections.Get(userID)
 		if !found {
@@ -166,10 +164,7 @@ func (sfu *RTMChannelSFU) HTTPChannelUsersHandler(rw http.ResponseWriter, req *h
 				senders = append(senders, NewChannelConnectionResource(senderRecord))
 				senderRecord.RUnlock()
 			})
-			resource = &api.CollectionResource{
-				ODataContext: req.URL.Path,
-				Values:       senders,
-			}
+			resource = api.NewCollectionResource(senders, req, nil)
 
 		case "connections":
 			connections := make([]*ChannelConnectionResource, 0)
@@ -179,10 +174,7 @@ func (sfu *RTMChannelSFU) HTTPChannelUsersHandler(rw http.ResponseWriter, req *h
 				connections = append(connections, NewChannelConnectionResource(connectionRecord))
 				connectionRecord.RUnlock()
 			})
-			resource = &api.CollectionResource{
-				ODataContext: req.URL.Path,
-				Values:       connections,
-			}
+			resource = api.NewCollectionResource(connections, req, nil)
 
 		default:
 			rw.WriteHeader(http.StatusNotFound)

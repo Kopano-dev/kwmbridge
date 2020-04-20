@@ -171,6 +171,18 @@ func (sfu *RTMChannelSFU) Bridge() string {
 	return bridgeID
 }
 
+func (sfu *RTMChannelSFU) Summary() interface{} {
+	sfu.RLock()
+	defer sfu.RUnlock()
+
+	channel := sfu.channel
+	if channel == nil {
+		return nil
+	}
+
+	return &channel.channel
+}
+
 func (sfu *RTMChannelSFU) Start(ctx context.Context) error {
 	errCh := make(chan error, 1)
 

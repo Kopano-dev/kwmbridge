@@ -13,9 +13,10 @@ import (
 type ClientResource struct {
 	client *Client
 
-	ID        string `json:"id"`
-	URI       string `json:"uri"`
-	Connected bool   `json:"connected"`
+	ID            string `json:"id"`
+	URI           string `json:"uri"`
+	Connected     bool   `json:"connected"`
+	AttachedCount int    `json:"attached_count"`
 }
 
 func (resource *ClientResource) Attached(id string) []*AttachedResource {
@@ -39,22 +40,24 @@ func (resource *ClientResource) Attached(id string) []*AttachedResource {
 type AttachedResource struct {
 	record *AttachedRecord
 
-	ID     string    `json:"id"`
-	When   time.Time `json:"when"`
-	Bridge string    `json:"bridge"`
-	Plugin string    `json:"plugin"`
-	Handle int64     `json:"handle_id"`
+	ID      string      `json:"id"`
+	When    time.Time   `json:"when"`
+	Bridge  string      `json:"bridge"`
+	Plugin  string      `json:"plugin"`
+	Handle  int64       `json:"handle_id"`
+	Summary interface{} `json:"summary,omitempty"`
 }
 
 func NewAttachedResource(record *AttachedRecord) *AttachedResource {
 	return &AttachedResource{
 		record: record,
 
-		ID:     record.message.Transaction,
-		When:   record.when,
-		Bridge: record.plugin.Bridge(),
-		Plugin: record.message.Plugin,
-		Handle: record.message.Handle,
+		ID:      record.message.Transaction,
+		When:    record.when,
+		Bridge:  record.plugin.Bridge(),
+		Plugin:  record.message.Plugin,
+		Handle:  record.message.Handle,
+		Summary: record.plugin.Summary(),
 	}
 }
 

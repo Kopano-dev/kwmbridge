@@ -15,6 +15,7 @@ import (
 
 	"stash.kopano.io/kwm/kwmbridge/bridge"
 	"stash.kopano.io/kwm/kwmbridge/bridge/mcuc"
+	"stash.kopano.io/kwm/kwmbridge/bridge/odata"
 )
 
 const (
@@ -39,6 +40,7 @@ func NewHTTPService(ctx context.Context, logger logrus.FieldLogger, services *br
 // context and router.
 func (h *HTTPService) AddRoutes(ctx context.Context, router *mux.Router, chain alice.Chain) http.Handler {
 	v0 := router.PathPrefix(URIPrefix).Subrouter()
+	chain = chain.Append(odata.WithOData)
 
 	if mcucm, ok := h.services.MCUCManager.(*mcuc.Manager); ok {
 		r := v0.PathPrefix("/bridge/mcuc").Subrouter()

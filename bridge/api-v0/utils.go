@@ -21,6 +21,18 @@ func WriteResourceAsJSON(rw http.ResponseWriter, resource interface{}) error {
 	return encoder.Encode(resource)
 }
 
+func WriteResourceAsItemResourceResponseJSON(rw http.ResponseWriter, req *http.Request, item interface{}) error {
+	resource := NewItemResource(item, req)
+
+	return WriteResourceAsJSON(rw, resource)
+}
+
+func WriteResourceAsCollectionResourceResponseJSON(rw http.ResponseWriter, req *http.Request, values interface{}, nextLink *string) error {
+	resource := NewCollectionResource(values, req, nextLink)
+
+	return WriteResourceAsJSON(rw, resource)
+}
+
 func WriteErrorAsJSON(rw http.ResponseWriter, err error) error {
 	rw.Header().Add("Content-Type", "application/json; charset=utf-8")
 	encoder := json.NewEncoder(rw)

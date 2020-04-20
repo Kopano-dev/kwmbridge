@@ -24,21 +24,13 @@ func (m *Manager) HTTPClientsHandler(rw http.ResponseWriter, req *http.Request) 
 			clients = append(clients, client.Resource())
 		}
 
-		resource = &api.CollectionResource{
-			ODataContext: req.URL.Path,
-
-			Values: clients,
-		}
+		resource = api.NewCollectionResource(clients, req, nil)
 	} else {
 		resource = m.getClientResourceOrWriteError(clientID, rw)
 		if resource == nil {
 			return
 		}
-		resource = &api.ItemResource{
-			ODataContext: req.URL.Path,
-
-			Item: resource,
-		}
+		resource = api.NewItemResource(resource, req)
 	}
 
 	if writeErr := api.WriteResourceAsJSON(rw, resource); writeErr != nil {
@@ -85,17 +77,9 @@ func (m *Manager) HTTPClientsAttachedHandler(rw http.ResponseWriter, req *http.R
 	var resource interface{}
 
 	if attachedID == "" {
-		resource = &api.CollectionResource{
-			ODataContext: req.URL.Path,
-
-			Values: attached,
-		}
+		resource = api.NewCollectionResource(attached, req, nil)
 	} else {
-		resource = &api.ItemResource{
-			ODataContext: req.URL.Path,
-
-			Item: attached[0],
-		}
+		resource = api.NewItemResource(attached[0], req)
 	}
 
 	if writeErr := api.WriteResourceAsJSON(rw, resource); writeErr != nil {
