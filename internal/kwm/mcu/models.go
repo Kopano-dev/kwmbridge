@@ -16,7 +16,7 @@ type ClientResource struct {
 	ID            string `json:"id"`
 	URI           string `json:"uri"`
 	Connected     bool   `json:"connected"`
-	AttachedCount int    `json:"attached_count"`
+	AttachedCount int    `json:"attachedCount"`
 }
 
 func (resource *ClientResource) Attached(id string) []*AttachedResource {
@@ -44,7 +44,7 @@ type AttachedResource struct {
 	When    time.Time   `json:"when"`
 	Bridge  string      `json:"bridge"`
 	Plugin  string      `json:"plugin"`
-	Handle  int64       `json:"handle_id"`
+	Handle  int64       `json:"handleID"`
 	Summary interface{} `json:"summary,omitempty"`
 }
 

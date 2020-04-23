@@ -20,7 +20,7 @@ type MCUTypeContainer struct {
 	Type        string `json:"type"`
 	Transaction string `json:"transaction"`
 	Plugin      string `json:"plugin"`
-	Handle      int64  `json:"handle_id"`
+	Handle      int64  `json:"handleID"`
 }
 
 type RTMDataWebRTCSignal struct {
