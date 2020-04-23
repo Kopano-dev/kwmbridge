@@ -29,14 +29,14 @@ func (sfu *RTMChannelSFU) addRoutes() {
 	r.Handle("/channel", chain.ThenFunc(sfu.HTTPChannelHandler))
 	r.Handle("/channel/users", chain.ThenFunc(sfu.HTTPChannelUsersHandler))
 	r.Handle("/channel/users/{userID}", chain.ThenFunc(sfu.HTTPChannelUsersHandler))
-	r.Handle("/channel/users/{userID}/{actionID:(?:senders|connections)}", chain.ThenFunc(sfu.HTTPChannelUsersHandler))
+	r.Handle("/channel/users/{userID}/{actionID:(?:publishers|connections)}", chain.ThenFunc(sfu.HTTPChannelUsersHandler))
 
 	// /api/kwm/v0/bridge/mcuc/clients/:clientid/attached/:transaction/rtmcsfu/channel
 	// /api/kwm/v0/bridge/mcuc/clients/:clientid/attached/:transaction/rtmcsfu/channel/users
-	// /api/kwm/v0/bridge/mcuc/clients/:clientid/attached/:transaction/rtmcsfu/channel/users/:userid/senders
+	// /api/kwm/v0/bridge/mcuc/clients/:clientid/attached/:transaction/rtmcsfu/channel/users/:userid/publishers
 	// /api/kwm/v0/bridge/mcuc/clients/:clientid/attached/:transaction/rtmcsfu/channel/users/:userid/connections
 	// /api/kwm/v0/bridge/mcuc/clients/:clientid/attached/:transaction/rtmcsfu/channel/users/:userid/connections/:connectionid/tracks
-	// /api/kwm/v0/bridge/mcuc/clients/:clientid/attached/:transaction/rtmcsfu/channel/users/:userid/connections/:connectionid/senders
+	// /api/kwm/v0/bridge/mcuc/clients/:clientid/attached/:transaction/rtmcsfu/channel/users/:userid/connections/:connectionid/publishers
 	// /api/kwm/v0/bridge/mcuc/clients/:clientid/attached/:transaction/rtmcsfu/channel/users/:userid/connections/:connectionid/pending
 	// /api/kwm/v0/bridge/mcuc/clients/:clientid/attached/:transaction/rtmcsfu/channel/users/:userid/connections/:connectionid/p2p/connections
 
@@ -132,7 +132,7 @@ func (sfu *RTMChannelSFU) HTTPChannelUsersHandler(rw http.ResponseWriter, req *h
 		users := make([]*ChannelUserResource, 0)
 		channel.connections.IterCb(func(key string, v interface{}) {
 			userRecord := v.(*UserRecord)
-			users = append(users, NewChannelUserResource(userRecord))
+			users = append(users, NewChannelUserResource(key, userRecord))
 		})
 
 		resource = api.NewCollectionResource(users, req, nil)
@@ -154,24 +154,24 @@ func (sfu *RTMChannelSFU) HTTPChannelUsersHandler(rw http.ResponseWriter, req *h
 		actionID, _ := api.GetRequestVar(req, "actionID")
 		switch actionID {
 		case "":
-			resource = NewChannelUserResource(userRecord)
+			resource = NewChannelUserResource(userID, userRecord)
 
-		case "senders":
-			senders := make([]*ChannelConnectionResource, 0)
-			userRecord.senders.IterCb(func(key string, v interface{}) {
-				senderRecord := v.(*ConnectionRecord)
-				senderRecord.RLock()
-				senders = append(senders, NewChannelConnectionResource(senderRecord))
-				senderRecord.RUnlock()
+		case "publishers":
+			publishers := make([]*ChannelConnectionResource, 0)
+			userRecord.publishers.IterCb(func(key string, v interface{}) {
+				publisherRecord := v.(*ConnectionRecord)
+				publisherRecord.RLock()
+				publishers = append(publishers, NewChannelConnectionResource(key, publisherRecord))
+				publisherRecord.RUnlock()
 			})
-			resource = api.NewCollectionResource(senders, req, nil)
+			resource = api.NewCollectionResource(publishers, req, nil)
 
 		case "connections":
 			connections := make([]*ChannelConnectionResource, 0)
 			userRecord.connections.IterCb(func(key string, v interface{}) {
 				connectionRecord := v.(*ConnectionRecord)
 				connectionRecord.RLock()
-				connections = append(connections, NewChannelConnectionResource(connectionRecord))
+				connections = append(connections, NewChannelConnectionResource(key, connectionRecord))
 				connectionRecord.RUnlock()
 			})
 			resource = api.NewCollectionResource(connections, req, nil)
@@ -189,29 +189,38 @@ func (sfu *RTMChannelSFU) HTTPChannelUsersHandler(rw http.ResponseWriter, req *h
 }
 
 type ChannelUserResource struct {
+	Key string `json:"key"`
+
 	When time.Time `json:"when"`
 	ID   string    `json:"id"`
 
+	IsClosed         bool   `json:"isClosed"`
 	ConnectionsCount uint64 `json:"connectionsCount"`
-	SendersCount     uint64 `json:"sendersCount"`
+	PublishersCount  uint64 `json:"publishersCount"`
 }
 
-func NewChannelUserResource(userRecord *UserRecord) *ChannelUserResource {
+func NewChannelUserResource(key string, userRecord *UserRecord) *ChannelUserResource {
 	if userRecord == nil {
 		return nil
 	}
 
 	return &ChannelUserResource{
+		Key: key,
+
 		When: userRecord.when,
 		ID:   userRecord.id,
 
 		ConnectionsCount: uint64(userRecord.connections.Count()),
-		SendersCount:     uint64(userRecord.senders.Count()),
+		PublishersCount:  uint64(userRecord.publishers.Count()),
+		IsClosed:         userRecord.isClosed(),
 	}
 }
 
 type ChannelConnectionResource struct {
-	Owner string `json:"owner"`
+	Key string `json:"key"`
+
+	Owner *ChannelUserResource `json:"owner"`
+	Bound *ChannelUserResource `json:"bound"`
 
 	ID    string `json:"id"`
 	RPCID string `json:"rpcid"`
@@ -239,13 +248,16 @@ type ChannelConnectionResource struct {
 	JitterBuffer interface{} `json:"jitterBuffer"`
 }
 
-func NewChannelConnectionResource(connectionRecord *ConnectionRecord) *ChannelConnectionResource {
+func NewChannelConnectionResource(key string, connectionRecord *ConnectionRecord) *ChannelConnectionResource {
 	if connectionRecord == nil {
 		return nil
 	}
 
 	resource := &ChannelConnectionResource{
-		Owner: connectionRecord.owner.id,
+		Key: key,
+
+		Owner: NewChannelUserResource("", connectionRecord.owner),
+		Bound: NewChannelUserResource("", connectionRecord.bound),
 
 		ID:    connectionRecord.id,
 		RPCID: connectionRecord.rpcid,
@@ -291,8 +303,8 @@ func NewChannelConnectionResource(connectionRecord *ConnectionRecord) *ChannelCo
 	}
 	for key, pending := range connectionRecord.pending {
 		resource.Pending[key] = &ConnectionTrackRecordResource{
-			Connection:      NewChannelConnectionResource(pending.connection),
-			Source:          NewChannelUserResource(pending.source),
+			Connection:      NewChannelConnectionResource(string(key), pending.connection),
+			Source:          NewChannelUserResource(string(key), pending.source),
 			Track:           NewConnectionTrackResource(pending.track),
 			IsRemove:        pending.remove,
 			WithTransceiver: pending.transceiver,

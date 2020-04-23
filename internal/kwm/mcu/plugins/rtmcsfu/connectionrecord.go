@@ -28,8 +28,11 @@ type ConnectionRecord struct {
 	deadlock.RWMutex
 
 	owner  *UserRecord
+	bound  *UserRecord
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	onResetHandler func(context.Context) error
 
 	id    string
 	rpcid string
@@ -140,6 +143,12 @@ func NewConnectionRecord(parentCtx context.Context, owner *UserRecord, target st
 	return record
 }
 
+func (record *ConnectionRecord) OnReset(handler func(context.Context) error) {
+	record.Lock()
+	defer record.Unlock()
+	record.onResetHandler = handler
+}
+
 func (record *ConnectionRecord) reset(parentCtx context.Context) {
 	record.p2p.Lock()
 	defer record.p2p.Unlock()
@@ -181,6 +190,7 @@ func (record *ConnectionRecord) reset(parentCtx context.Context) {
 	record.isNegotiating = false
 	record.iceComplete = make(chan bool)
 	record.requestedTransceivers = &sync.Map{}
+	record.bound = nil
 	record.tracks = make(map[uint32]*webrtc.Track)
 	record.senders = make(map[uint32]*webrtc.RTPSender)
 	record.receivers = make(map[uint32]*webrtc.RTPReceiver)
@@ -190,6 +200,12 @@ func (record *ConnectionRecord) reset(parentCtx context.Context) {
 		record.rtcpCh = nil
 	}
 	record.p2p.reset()
+	if record.onResetHandler != nil {
+		if resetHandlerErr := record.onResetHandler(parentCtx); resetHandlerErr != nil {
+			record.owner.channel.logger.WithError(resetHandlerErr).Warnln("error while resetting connection record")
+		}
+		record.onResetHandler = nil
+	}
 }
 
 func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*PeerConnection, error) {
@@ -374,7 +390,7 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 					return
 				}
 
-				if record, ok := connectionRecord.owner.senders.Get("default"); ok && record == connectionRecord {
+				if record, ok := connectionRecord.owner.publishers.Get("default"); ok && record == connectionRecord {
 					// This is the default record, kill off everything of that user.
 					logger.Debugln("rrr default sender is closed, killing off user")
 					if removed := channel.connections.RemoveCb(connectionRecord.owner.id, func(key string, record interface{}, exists bool) bool {
@@ -383,14 +399,10 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 						}
 						return false
 					}); removed {
-						logger.Debugln("rrr removing killed user from channel")
-						connectionRecord.owner.connections.IterCb(func(target string, record interface{}) {
-							targetRecord := record.(*ConnectionRecord)
-							targetRecord.Lock()
-							targetRecord.reset(channel.sfu.wsCtx)
-							targetRecord.Unlock()
-						})
+						logger.Debugln("rrr removed killed user from channel")
+						owner := connectionRecord.owner
 						connectionRecord.owner = nil
+						go owner.close()
 					} else {
 						logger.Debugln("rrr default sender owner of closed peer connection not found in channel")
 						return
@@ -1094,8 +1106,17 @@ func (connectionRecord *ConnectionRecord) addTransceiver(kind webrtc.RTPCodecTyp
 }
 
 func (record *ConnectionRecord) addTrack(trackRecord *TrackRecord) (bool, error) {
+	sourceRecord := trackRecord.source
 	senderTrack := trackRecord.track
 	senderRecord := trackRecord.connection
+
+	switch {
+	case record.bound == nil:
+		// Bind record to sender source.
+		record.bound = sourceRecord
+	case record.bound != sourceRecord:
+		return false, fmt.Errorf("track sender mismatch in add track")
+	}
 
 	var targetCodec *webrtc.RTPCodec
 	senderCodec := senderTrack.Codec()
@@ -1188,7 +1209,16 @@ func (record *ConnectionRecord) addTrack(trackRecord *TrackRecord) (bool, error)
 }
 
 func (record *ConnectionRecord) removeTrack(trackRecord *TrackRecord) (bool, error) {
+	sourceRecord := trackRecord.source
 	senderTrack := trackRecord.track
+
+	switch {
+	case record.bound == nil:
+		// Ignore track removal requests when not bound.
+		return false, nil
+	case record.bound != sourceRecord:
+		return false, fmt.Errorf("track sender mismatch in remove track")
+	}
 
 	delete(record.pending, senderTrack.SSRC())
 
@@ -1200,6 +1230,7 @@ func (record *ConnectionRecord) removeTrack(trackRecord *TrackRecord) (bool, err
 
 	delete(record.senders, senderTrack.SSRC())
 	delete(record.tracks, senderTrack.SSRC())
+
 	if removeErr := record.pc.RemoveTrack(sender); removeErr != nil {
 		return true, fmt.Errorf("failed to remove track from record: %w", removeErr)
 	}
@@ -1225,8 +1256,10 @@ func (connectionRecord *ConnectionRecord) setupDataChannel(pc *PeerConnection, d
 		// NOTE(longsleep): Do the naive approach here, kill the connection when the data channel closed.
 		connectionRecord.Lock()
 		defer connectionRecord.Unlock()
-		connectionRecord.reset(channel.sfu.wsCtx)
-		connectionRecord.p2p.handleClose(pc, dataChannel)
+		if connectionRecord.pc == pc {
+			connectionRecord.reset(channel.sfu.wsCtx)
+			connectionRecord.p2p.handleClose(pc, dataChannel)
+		}
 	})
 	dataChannel.OnError(func(dataChannelErr error) {
 		logger.WithError(dataChannelErr).Errorln("ddd data channel error")

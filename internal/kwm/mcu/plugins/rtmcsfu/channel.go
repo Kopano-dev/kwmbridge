@@ -6,6 +6,7 @@
 package rtmcsfu
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -112,10 +113,15 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 						// Do not publish to self.
 						return
 					}
+					targetRecord := record.(*UserRecord)
+					if targetRecord.isClosed() {
+						// Do not publish to closed.
+						return
+					}
+
 					logger = logger.WithField("target", target)
 
 					logger.Debugln("ooo sfu track target")
-					targetRecord := record.(*UserRecord)
 
 					var ok bool
 					record, ok = targetRecord.connections.Get(trackRecord.source.id)
@@ -195,6 +201,38 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 				})
 				logger.Debugln("sss got new peer connection to fill with local sfu track")
 
+				connectionRecord.OnReset(func(resetCtx context.Context) error {
+					logger.Debugln("xxx onReset triggered", connectionRecord.owner.id)
+					channel.connections.IterCb(func(target string, record interface{}) {
+						logger.Debugln("xx sfu selecting for onRreset", target)
+						if target == connectionRecord.owner.id {
+							// Do not unpublish for self.
+							return
+						}
+						targetRecord := record.(*UserRecord)
+						if targetRecord.isClosed() {
+							// Do not unpublish for closed.
+							return
+						}
+
+						logger.WithField("target", target).Debugln("xxx sfu track reset target")
+
+						if removed := targetRecord.connections.RemoveCb(connectionRecord.owner.id, func(key string, record interface{}, exists bool) bool {
+							if exists {
+								r := record.(*ConnectionRecord)
+								logger.WithField("target", target).Debugln("xxx sfu track reset target connection", r.owner.id)
+								return r.bound == connectionRecord.owner
+							}
+							return false
+						}); removed {
+							logger.WithField("target", target).Debugln("xxx sfu track reset removed connection", connectionRecord.owner.id)
+						} else {
+							logger.WithField("target", target).Debugln("xxx sfu track reset not removed connection", connectionRecord.owner.id)
+						}
+					})
+					return nil
+				})
+
 				record, found := channel.connections.Get(connectionRecord.id)
 				if !found {
 					logger.Debugln("sss no connection for wanted")
@@ -204,7 +242,7 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 				logger.Debugln("sss sfu publishing wanted")
 				sourceRecord := record.(*UserRecord)
 
-				record, found = sourceRecord.senders.Get("default")
+				record, found = sourceRecord.publishers.Get("default")
 				if !found {
 					// Skip source if no sender.
 					logger.Debugln("sss skip sfu publishing, no sender")
@@ -225,6 +263,7 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 						// No peer connection in our record, do nothing.
 						return
 					}
+
 					senderRecord := record.(*ConnectionRecord)
 					senderRecord.RLock()
 					rtcpCh := senderRecord.rtcpCh
@@ -306,13 +345,16 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 
 			// Initiate default sender too.
 			defaultSenderConnectionRecord, _ := channel.createSender(userRecordImpl)
-			userRecordImpl.senders.Set("default", defaultSenderConnectionRecord)
+			userRecordImpl.publishers.Set("default", defaultSenderConnectionRecord)
 
 			userRecord = userRecordImpl
 		}
 		return userRecord
 	})
 	sourceRecord := record.(*UserRecord)
+	if sourceRecord.isClosed() {
+		return errors.New("source user is closed")
+	}
 
 	logger := channel.logger.WithFields(logrus.Fields{
 		"source": sourceRecord.id,
@@ -320,7 +362,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 	})
 
 	if message.Target == channel.pipeline.Pipeline {
-		record = sourceRecord.senders.Upsert("default", nil, func(ok bool, userRecord interface{}, n interface{}) interface{} {
+		record = sourceRecord.publishers.Upsert("default", nil, func(ok bool, userRecord interface{}, n interface{}) interface{} {
 			if !ok {
 				defaultSenderConnectionRecord, _ := channel.createSender(sourceRecord)
 				userRecord = defaultSenderConnectionRecord
@@ -334,6 +376,10 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 			if record, ok := channel.connections.Get(message.Target); ok {
 				// Target already exists, get connection to source and make sure it works.
 				targetRecord := record.(*UserRecord)
+				if targetRecord.isClosed() {
+					logger.Debugln("rrr target exists, but user is closed")
+					return
+				}
 
 				if record, ok = targetRecord.connections.Get(message.Source); ok {
 					connectionRecord := record.(*ConnectionRecord)
@@ -363,6 +409,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 					}
 				} else {
 					logger.Debugln("rrr target exists, but no matching connection")
+					return
 				}
 			}
 		}()
@@ -378,6 +425,9 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 		})
 	}
 	connectionRecord := record.(*ConnectionRecord)
+	if connectionRecord.owner.isClosed() {
+		return errors.New("target user is closed")
+	}
 
 	// NOTE(longsleep): For now we keep the connectionRecord locked and do everything
 	// synchronized with it here. In the future, certain parts below this point
@@ -679,20 +729,9 @@ func (channel *Channel) handleWebRTCHangupMessage(message *api.RTMTypeWebRTC) er
 		return nil
 	}
 	sourceRecord := record.(*UserRecord)
-
-	sourceRecord.senders.IterCb(func(target string, record interface{}) {
-		connectionRecord := record.(*ConnectionRecord)
-		connectionRecord.Lock()
-		connectionRecord.reset(channel.sfu.wsCtx)
-		connectionRecord.Unlock()
-	})
-
-	sourceRecord.connections.IterCb(func(target string, record interface{}) {
-		connectionRecord := record.(*ConnectionRecord)
-		connectionRecord.Lock()
-		connectionRecord.reset(channel.sfu.wsCtx)
-		connectionRecord.Unlock()
-	})
+	if err := sourceRecord.close(); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -799,21 +838,7 @@ func (channel *Channel) Stop() error {
 	channel.connections.IterCb(func(id string, record interface{}) {
 		channel.logger.Debugln("yyy stopping channel user", id)
 		userRecord := record.(*UserRecord)
-
-		userRecord.senders.IterCb(func(target string, record interface{}) {
-			channel.logger.Debugln("yyy stopping channel user sender", id, target)
-			connectionRecord := record.(*ConnectionRecord)
-			connectionRecord.Lock()
-			connectionRecord.reset(channel.sfu.wsCtx)
-			connectionRecord.Unlock()
-		})
-		userRecord.connections.IterCb(func(target string, record interface{}) {
-			channel.logger.Debugln("yyy stopping channel user target", id, target)
-			connectionRecord := record.(*ConnectionRecord)
-			connectionRecord.Lock()
-			connectionRecord.reset(channel.sfu.wsCtx)
-			connectionRecord.Unlock()
-		})
+		userRecord.close()
 	})
 
 	return nil
