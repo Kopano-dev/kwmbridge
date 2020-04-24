@@ -107,74 +107,80 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 				})
 				logger.Debugln("ooo got local sfu track change")
 
-				channel.connections.IterCb(func(target string, record interface{}) {
-					logger.Debugln("ooo sfu selecting", target)
-					if target == trackRecord.source.id {
-						// Do not publish to self.
-						return
-					}
-					targetRecord := record.(*UserRecord)
-					if targetRecord.isClosed() {
-						// Do not publish to closed.
-						return
-					}
+				//channel.connections.IterCb(func(target string, record interface{}) {
+				for item := range channel.connections.IterBuffered() {
+					func() {
+						target := item.Key
+						record := item.Val
 
-					logger = logger.WithField("target", target)
-
-					logger.Debugln("ooo sfu track target")
-
-					var ok bool
-					record, ok = targetRecord.connections.Get(trackRecord.source.id)
-					if !ok {
-						logger.Warnln("ooo updating sfu track to target which does not have a matching source connection")
-						return
-					}
-					connectionRecord := record.(*ConnectionRecord)
-					logger.Debugln("ooo sfu using connection", connectionRecord.id)
-					connectionRecord.Lock()
-					defer connectionRecord.maybeNegotiateAndUnlock()
-					select {
-					case <-channel.closed:
-						return // Do nothing when closed.
-					default:
-					}
-					pc := connectionRecord.pc
-					if pc == nil || connectionRecord.owner == nil {
-						// No peer connection in this record, skip.
-						logger.Debugln("ooo no peer connection on sfu target, skipping")
-						return
-					}
-
-					if remove {
-						logger.WithFields(logrus.Fields{
-							"track_id":    track.ID(),
-							"track_label": track.Label(),
-							"track_kind":  track.Kind(),
-							"track_type":  track.PayloadType(),
-						}).Debugln("www ooo sfu remove track to target")
-						if _, removeErr := connectionRecord.removeTrack(trackRecord); removeErr != nil {
-							logger.WithError(removeErr).WithField("track_id", track.ID()).Errorln("www ooo remove sfu track from target failed")
+						logger.Debugln("ooo sfu selecting", target)
+						if target == trackRecord.source.id {
+							// Do not publish to self.
 							return
 						}
-					} else {
-						logger.WithFields(logrus.Fields{
-							"track_id":    track.ID(),
-							"track_label": track.Label(),
-							"track_kind":  track.Kind(),
-							"track_type":  track.PayloadType(),
-						}).Debugln("www ooo sfu add track to target")
-						if _, addErr := connectionRecord.addTrack(trackRecord); addErr != nil {
-							logger.WithError(addErr).WithField("track_id", track.ID()).Errorln("www ooo add sfu track to target failed")
+						targetRecord := record.(*UserRecord)
+						if targetRecord.isClosed() {
+							// Do not publish to closed.
 							return
 						}
-					}
 
-					if negotiateErr := connectionRecord.negotiationNeeded(); negotiateErr != nil {
-						logger.WithError(negotiateErr).Errorln("www ooo failed to trigger sfu update track negotiation")
-						// TODO(longsleep): Figure out what to do here.
-						return
-					}
-				})
+						logger = logger.WithField("target", target)
+
+						logger.Debugln("ooo sfu track target")
+
+						var ok bool
+						record, ok = targetRecord.connections.Get(trackRecord.source.id)
+						if !ok {
+							logger.Warnln("ooo updating sfu track to target which does not have a matching source connection")
+							return
+						}
+						connectionRecord := record.(*ConnectionRecord)
+						logger.Debugln("ooo sfu using connection", connectionRecord.id)
+						connectionRecord.Lock()
+						defer connectionRecord.maybeNegotiateAndUnlock()
+						select {
+						case <-channel.closed:
+							return // Do nothing when closed.
+						default:
+						}
+						pc := connectionRecord.pc
+						if pc == nil || connectionRecord.owner == nil {
+							// No peer connection in this record, skip.
+							logger.Debugln("ooo no peer connection on sfu target, skipping")
+							return
+						}
+
+						if remove {
+							logger.WithFields(logrus.Fields{
+								"track_id":    track.ID(),
+								"track_label": track.Label(),
+								"track_kind":  track.Kind(),
+								"track_type":  track.PayloadType(),
+							}).Debugln("www ooo sfu remove track to target")
+							if _, removeErr := connectionRecord.removeTrack(trackRecord); removeErr != nil {
+								logger.WithError(removeErr).WithField("track_id", track.ID()).Errorln("www ooo remove sfu track from target failed")
+								return
+							}
+						} else {
+							logger.WithFields(logrus.Fields{
+								"track_id":    track.ID(),
+								"track_label": track.Label(),
+								"track_kind":  track.Kind(),
+								"track_type":  track.PayloadType(),
+							}).Debugln("www ooo sfu add track to target")
+							if _, addErr := connectionRecord.addTrack(trackRecord); addErr != nil {
+								logger.WithError(addErr).WithField("track_id", track.ID()).Errorln("www ooo add sfu track to target failed")
+								return
+							}
+						}
+
+						if negotiateErr := connectionRecord.negotiationNeeded(); negotiateErr != nil {
+							logger.WithError(negotiateErr).Errorln("www ooo failed to trigger sfu update track negotiation")
+							// TODO(longsleep): Figure out what to do here.
+							return
+						}
+					}()
+				}
 			}
 		}
 	}()
@@ -203,16 +209,19 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 
 				connectionRecord.OnReset(func(resetCtx context.Context) error {
 					logger.Debugln("xxx onReset triggered", connectionRecord.owner.id)
-					channel.connections.IterCb(func(target string, record interface{}) {
+					for item := range channel.connections.IterBuffered() {
+						target := item.Key
+						record := item.Val
+
 						logger.Debugln("xx sfu selecting for onRreset", target)
 						if target == connectionRecord.owner.id {
 							// Do not unpublish for self.
-							return
+							continue
 						}
 						targetRecord := record.(*UserRecord)
 						if targetRecord.isClosed() {
 							// Do not unpublish for closed.
-							return
+							continue
 						}
 
 						logger.WithField("target", target).Debugln("xxx sfu track reset target")
@@ -229,7 +238,7 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 						} else {
 							logger.WithField("target", target).Debugln("xxx sfu track reset not removed connection", connectionRecord.owner.id)
 						}
-					})
+					}
 					return nil
 				})
 
@@ -835,11 +844,13 @@ func (channel *Channel) Stop() error {
 
 	channel.logger.Infoln("stopping channel")
 
-	channel.connections.IterCb(func(id string, record interface{}) {
+	for item := range channel.connections.IterBuffered() {
+		id := item.Key
+		record := item.Val
 		channel.logger.Debugln("yyy stopping channel user", id)
 		userRecord := record.(*UserRecord)
 		userRecord.close()
-	})
+	}
 
 	return nil
 }

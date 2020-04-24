@@ -597,56 +597,59 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 					// Write to tracks non blocking.
 					func() {
 						var payloadType uint8
-						channel.connections.IterCb(func(id string, record interface{}) {
-							if record == sourceRecord {
-								// Skip source.
-								return
-							}
+						for item := range channel.connections.IterBuffered() {
+							func() {
+								record := item.Val
+								if record == sourceRecord {
+									// Skip source.
+									return
+								}
 
-							targetRecord := record.(*UserRecord)
-							record, ok = targetRecord.connections.Get(sourceRecord.id)
-							if !ok {
-								// No connection for target.
-								return
-							}
-							targetConnection := record.(*ConnectionRecord)
+								targetRecord := record.(*UserRecord)
+								record, ok = targetRecord.connections.Get(sourceRecord.id)
+								if !ok {
+									// No connection for target.
+									return
+								}
+								targetConnection := record.(*ConnectionRecord)
 
-							// Lock target, check and get tracks and payload table.
-							targetConnection.RLock()
-							if targetConnection.owner == nil {
+								// Lock target, check and get tracks and payload table.
+								targetConnection.RLock()
+								if targetConnection.owner == nil {
+									targetConnection.RUnlock()
+									return
+								}
+								track := targetConnection.tracks[pkt.SSRC]
+								if payloadType, ok = targetConnection.rtpPayloadTypes[localCodec.Name]; !ok {
+									// Found target payload.
+									payloadType = localCodec.PayloadType
+								}
 								targetConnection.RUnlock()
-								return
-							}
-							track := targetConnection.tracks[pkt.SSRC]
-							if payloadType, ok = targetConnection.rtpPayloadTypes[localCodec.Name]; !ok {
-								// Found target payload.
-								payloadType = localCodec.PayloadType
-							}
-							targetConnection.RUnlock()
-							// Set pkt payload to target type.
-							pkt.Header.PayloadType = payloadType
+								// Set pkt payload to target type.
+								pkt.Header.PayloadType = payloadType
 
-							if track != nil {
-								/*if count%1000 == 0 {
-									trackLogger.WithFields(logrus.Fields{
-										"count":               idx,
-										"target":              targetRecord.id,
-										"local_codec":         localCodec.Name,
-										"local_payload_type":  localCodec.PayloadType,
-										"remote_payload_type": payloadType,
-									}).Debugln("ttt send pkg to subscriber")
-									count = 0
-								}*/
-								if writeErr := track.WriteRTP(pkt); writeErr != nil {
-									trackLogger.WithError(writeErr).WithField("sfu_track_src", pkt.SSRC).Errorln("ttt failed to write to sfu track")
+								if track != nil {
+									/*if count%1000 == 0 {
+										trackLogger.WithFields(logrus.Fields{
+											"count":               idx,
+											"target":              targetRecord.id,
+											"local_codec":         localCodec.Name,
+											"local_payload_type":  localCodec.PayloadType,
+											"remote_payload_type": payloadType,
+										}).Debugln("ttt send pkg to subscriber")
+										count = 0
+									}*/
+									if writeErr := track.WriteRTP(pkt); writeErr != nil {
+										trackLogger.WithError(writeErr).WithField("sfu_track_src", pkt.SSRC).Errorln("ttt failed to write to sfu track")
+									}
+								} else {
+									if count%1000 == 0 {
+										trackLogger.WithField("sfu_track_src", pkt.SSRC).Warnln("ttt unknown target track")
+										count = 0
+									}
 								}
-							} else {
-								if count%1000 == 0 {
-									trackLogger.WithField("sfu_track_src", pkt.SSRC).Warnln("ttt unknown target track")
-									count = 0
-								}
-							}
-						})
+							}()
+						}
 					}()
 				}
 			}()
