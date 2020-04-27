@@ -438,19 +438,49 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 		return errors.New("target user is closed")
 	}
 
-	// NOTE(longsleep): For now we keep the connectionRecord locked and do everything
-	// synchronized with it here. In the future, certain parts below this point
-	// might be improved to run outside of this lock.
-	connectionRecord.Lock()
-	defer connectionRecord.maybeNegotiateAndUnlock()
 	select {
 	case <-channel.closed:
 		return nil // Do nothing when closed.
 	default:
 	}
 
+	// NOTE(longsleep): For now we keep the connectionRecord locked and do everything
+	// synchronized with it here. In the future, certain parts below this point
+	// might be improved to run outside of this lock.
+	connectionRecord.Lock()
+	pc := connectionRecord.pc
+	needsRelock := false
+	unlock := func() {
+		if needsRelock {
+			panic("unlock already called")
+		}
+		needsRelock = true
+		connectionRecord.Unlock()
+	}
+	lock := func() error {
+		if !needsRelock {
+			panic("lock called, but not unlocked")
+		}
+		needsRelock = false
+		connectionRecord.Lock()
+		if connectionRecord.pc != pc {
+			return errors.New("connection replaced")
+		}
+		return nil
+	}
+	defer func() {
+		if needsRelock {
+			connectionRecord.Lock()
+		}
+		if connectionRecord.pc == pc {
+			connectionRecord.maybeNegotiateAndUnlock()
+		} else {
+			connectionRecord.Unlock()
+		}
+	}()
+	//defer connectionRecord.maybeNegotiateAndUnlock()
+
 	if message.Pcid != connectionRecord.rpcid {
-		pc := connectionRecord.pc
 		if connectionRecord.rpcid == "" {
 			if pc != nil && message.Pcid != "" {
 				connectionRecord.rpcid = message.Pcid
@@ -469,6 +499,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 				connectionRecord.pc = nil
 				connectionRecord.pcid = ""
 				pc.Close()
+				pc = nil
 			}
 		}
 	}
@@ -486,8 +517,10 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 			logger.WithField("pcid", connectionRecord.pcid).Debugln("uuu trigger received renegotiate negotiation ", sourceRecord.id)
 
 			if connectionRecord.pc == nil {
-				if _, pcErr := connectionRecord.createPeerConnection(message.Pcid); pcErr != nil {
+				if newPc, pcErr := connectionRecord.createPeerConnection(message.Pcid); pcErr != nil {
 					return fmt.Errorf("uuu failed to create new peer connection: %w", pcErr)
+				} else {
+					pc = newPc
 				}
 				if connectionRecord.pipeline == nil {
 					// Add as receiver connection (sfu sends to it, clients receive) if not a pipeline (where sfu receives).
@@ -516,8 +549,8 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 			return fmt.Errorf("failed to parse candidate: %w", err)
 		}
 		if candidate.Candidate != "" { // Ensure candidate has data, some clients send empty candidates when their ICE has finished.
-			if connectionRecord.pc != nil && connectionRecord.pc.RemoteDescription() != nil {
-				if err = connectionRecord.pc.AddICECandidate(candidate); err != nil {
+			if pc != nil && pc.RemoteDescription() != nil {
+				if err = pc.AddICECandidate(candidate); err != nil {
 					return fmt.Errorf("failed to add ice candidate: %w", err)
 				}
 			} else {
@@ -527,6 +560,9 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 	}
 
 	if len(signal.SDP) > 0 {
+		initiator := connectionRecord.initiator
+		unlock()
+
 		found = true
 		var sdpType webrtc.SDPType
 		if err = json.Unmarshal(signal.Type, &sdpType); err != nil {
@@ -541,7 +577,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 			logger.WithField("pcid", connectionRecord.pcid).Debugln("kkk signal for pipeline", sdpType)
 		}*/
 
-		haveRemoteDescription := connectionRecord.pc != nil && connectionRecord.pc.CurrentRemoteDescription() != nil
+		haveRemoteDescription := pc != nil && pc.CurrentRemoteDescription() != nil
 		if haveRemoteDescription {
 			//logger.Debugln(">>> kkk sdp signal while already having remote description set")
 			timeout := time.After(5 * time.Second)
@@ -550,7 +586,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 				// while the underlaying DTLS transport has not started. If this is the best solution or if it better
 				// be detected / avoided somewhere else remains to be seen. For now, this seems to cure the problem.
 				wait := false
-				for _, sender := range connectionRecord.pc.GetSenders() {
+				for _, sender := range pc.GetSenders() {
 					senderState := sender.Transport().State()
 					//logger.Debugln(">>> kkk sdp sender transport state", senderState)
 					if senderState == webrtc.DTLSTransportStateNew {
@@ -563,6 +599,10 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 					select {
 					case <-timeout:
 						// This did now work, kill stuff.
+						if lockErr := lock(); lockErr != nil {
+							logger.WithError(lockErr).Debugln(">>> kkk sdp sender transport timeout, ignored on old connection")
+							return nil
+						}
 						logger.Debugln(">>> kkk sdp sender transport timeout, resetting")
 						connectionRecord.reset(channel.sfu.wsCtx)
 						return fmt.Errorf("timeout while waiting for sender dtls transport")
@@ -583,7 +623,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 			return fmt.Errorf("failed to transform remote description: %w", err)
 		}
 
-		if !connectionRecord.initiator {
+		if !initiator {
 			// XXX update webrtc media engine
 			channel.logger.Debugln("aaa remote initiator, creating matching webrtc api")
 			rtcpfb := []webrtc.RTCPFeedback{
@@ -618,6 +658,9 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 				codec.RTPCodecCapability.RTCPFeedback = rtcpfb
 				connectionRecord.rtpPayloadTypes[codec.Name] = codec.PayloadType
 			}
+			if lockErr := lock(); lockErr != nil {
+				return nil
+			}
 			for _, codec := range m.GetCodecsByKind(webrtc.RTPCodecTypeAudio) {
 				//channel.logger.Debugln("aaa remote media audio codec", codec.PayloadType, codec.Name)
 				connectionRecord.rtpPayloadTypes[codec.Name] = codec.PayloadType
@@ -627,32 +670,43 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 				// NOTE(longsleep): Update media engine is probably not the best of all ideas.
 				webrtc.WithMediaEngine(m)(connectionRecord.webrtcAPI)
 			}
+			unlock()
 		}
 
 		ignore := false
-		if connectionRecord.pc == nil {
-			if connectionRecord.initiator {
+		if pc == nil {
+			if initiator {
 				// Received signal without having an connection while being the initator. Ignore incoming data, start new.
 				ignore = true
 				if err = connectionRecord.negotiationNeeded(); err != nil {
 					return fmt.Errorf("uuu failed to trigger negotiation for answer signal without peer connection: %w", err)
 				}
 			}
-			if _, pcErr := connectionRecord.createPeerConnection(""); pcErr != nil {
+			if lockErr := lock(); lockErr != nil {
+				return nil
+			}
+			if newPc, pcErr := connectionRecord.createPeerConnection(""); pcErr != nil {
 				return fmt.Errorf("uuu failed to create new peer connection: %w", pcErr)
+			} else {
+				pc = newPc
 			}
 			if connectionRecord.pipeline == nil {
 				// Add as receiver connection (sfu sends to it, clients receive) if not a pipeline (where sfu receives).
 				channel.receiverCh <- connectionRecord
 			}
+			unlock()
 		}
 		if !ignore {
-			if err = connectionRecord.pc.SetRemoteDescription(sessionDescription); err != nil {
+			if err = pc.SetRemoteDescription(sessionDescription); err != nil {
 				return fmt.Errorf("failed to set remote description: %w", err)
 			}
 
+			if lockErr := lock(); lockErr != nil {
+				return nil
+			}
+
 			for _, candidate := range connectionRecord.pendingCandidates {
-				if err = connectionRecord.pc.AddICECandidate(*candidate); err != nil {
+				if err = pc.AddICECandidate(*candidate); err != nil {
 					return fmt.Errorf("failed to add queued ice candidate: %w", err)
 				}
 			}
@@ -690,6 +744,8 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 					return fmt.Errorf("failed to create answer for offer: %w", err)
 				}
 			}
+
+			unlock()
 		}
 	}
 
