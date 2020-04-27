@@ -21,6 +21,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/sasha-s/go-deadlock"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"stash.kopano.io/kgol/ksurveyclient-go/autosurvey"
@@ -32,6 +33,10 @@ import (
 )
 
 const defaultListenAddr = "127.0.0.1:8779"
+
+var (
+	detectDeadlocks = true
+)
 
 func commandServe() *cobra.Command {
 	serveCmd := &cobra.Command{
@@ -57,6 +62,7 @@ func commandServe() *cobra.Command {
 	serveCmd.Flags().StringArray("use-ice-if", nil, "Interface to use when gathering ICE candidates, all interfaces will be used if not set")
 	serveCmd.Flags().StringArray("use-ice-network-type", nil, "ICE network type supported when gathering candidates, if not set all types (udp4, udp6, tcp4, tcp6) are enabled")
 	serveCmd.Flags().String("use-ice-udp-port-range", "", "Range of ephemeral ports that ICE UDP connections can allocate from in format min:max, if not set its not limited")
+	serveCmd.Flags().BoolVar(&detectDeadlocks, "with-deadlock-detector", detectDeadlocks, "Enable deadlock detection")
 
 	return serveCmd
 }
@@ -72,6 +78,12 @@ func serve(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create logger: %v", err)
 	}
 	logger.Infoln("serve start")
+
+	deadlock.Opts.Disable = !detectDeadlocks
+	deadlock.Opts.DeadlockTimeout = 15 * time.Second
+	if !deadlock.Opts.Disable {
+		logger.Warnln("enabled automatic deadlock detector")
+	}
 
 	config := &cfg.Config{
 		Logger: logger,
