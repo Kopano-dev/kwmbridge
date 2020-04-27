@@ -6,7 +6,6 @@
 package rtmcsfu
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -187,7 +186,6 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 
 	go func() {
 		// Receiver pc worker adds all existing tracks to newly created peer connections.
-		var logger logrus.FieldLogger
 		var index uint64
 		for {
 			select {
@@ -199,48 +197,13 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 			case connectionRecord := <-channel.receiverCh:
 				index++
 
-				logger = channel.logger.WithFields(logrus.Fields{
+				logger := channel.logger.WithFields(logrus.Fields{
 					"wanted": connectionRecord.id,
 					"target": connectionRecord.owner.id,
 					"pcid":   connectionRecord.pcid,
 					"sfu_b":  index,
 				})
-				logger.Debugln("sss got new peer connection to fill with local sfu track")
-
-				connectionRecord.OnReset(func(resetCtx context.Context) error {
-					logger.Debugln("xxx onReset triggered", connectionRecord.owner.id)
-					for item := range channel.connections.IterBuffered() {
-						target := item.Key
-						record := item.Val
-
-						logger.Debugln("xx sfu selecting for onRreset", target)
-						if target == connectionRecord.owner.id {
-							// Do not unpublish for self.
-							continue
-						}
-						targetRecord := record.(*UserRecord)
-						if targetRecord.isClosed() {
-							// Do not unpublish for closed.
-							continue
-						}
-
-						logger.WithField("target", target).Debugln("xxx sfu track reset target")
-
-						if removed := targetRecord.connections.RemoveCb(connectionRecord.owner.id, func(key string, record interface{}, exists bool) bool {
-							if exists {
-								r := record.(*ConnectionRecord)
-								logger.WithField("target", target).Debugln("xxx sfu track reset target connection", r.owner.id)
-								return r.bound == connectionRecord.owner
-							}
-							return false
-						}); removed {
-							logger.WithField("target", target).Debugln("xxx sfu track reset removed connection", connectionRecord.owner.id)
-						} else {
-							logger.WithField("target", target).Debugln("xxx sfu track reset not removed connection", connectionRecord.owner.id)
-						}
-					}
-					return nil
-				})
+				logger.Debugln("sss got new peer connection to fill with local sfu tracks")
 
 				record, found := channel.connections.Get(connectionRecord.id)
 				if !found {

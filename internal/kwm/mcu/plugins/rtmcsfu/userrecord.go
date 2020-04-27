@@ -44,19 +44,56 @@ func (record *UserRecord) close() error {
 
 	channel := record.channel
 
-	record.publishers.IterCb(func(target string, record interface{}) {
-		connectionRecord := record.(*ConnectionRecord)
-		connectionRecord.Lock()
-		connectionRecord.reset(channel.sfu.wsCtx)
-		connectionRecord.Unlock()
-	})
+	go func() {
+		record.publishers.IterCb(func(target string, record interface{}) {
+			connectionRecord := record.(*ConnectionRecord)
+			connectionRecord.Lock()
+			connectionRecord.reset(channel.sfu.wsCtx)
+			connectionRecord.Unlock()
+		})
 
-	record.connections.IterCb(func(target string, record interface{}) {
-		connectionRecord := record.(*ConnectionRecord)
-		connectionRecord.Lock()
-		connectionRecord.reset(channel.sfu.wsCtx)
-		connectionRecord.Unlock()
-	})
+		record.connections.IterCb(func(target string, record interface{}) {
+			connectionRecord := record.(*ConnectionRecord)
+			connectionRecord.Lock()
+			connectionRecord.reset(channel.sfu.wsCtx)
+			connectionRecord.Unlock()
+		})
+
+		logger := record.channel.logger.WithField("target", record.id)
+
+		for item := range channel.connections.IterBuffered() {
+			target := item.Key
+			connectionRecord := item.Val
+
+			logger.Debugln("xxx sfu user close", record.id, target)
+			if target == record.id {
+				// Do not unpublish for self.
+				continue
+			}
+			targetRecord := connectionRecord.(*UserRecord)
+			if targetRecord.isClosed() {
+				// Do not unpublish for closed.
+				continue
+			}
+
+			logger.Debugln("xxx sfu user close target", record.id, target)
+
+			if removed := targetRecord.connections.RemoveCb(record.id, func(key string, r interface{}, exists bool) bool {
+				if exists {
+					cr := r.(*ConnectionRecord)
+					cr.RLock()
+					defer cr.RUnlock()
+					logger.Debugln("xxx sfu user close target connection", record.id, target, cr.bound == record, cr.bound == nil)
+					return cr.bound == record || cr.bound == nil
+				}
+				return false
+			}); removed {
+				logger.Debugln("xxx sfu user close removed connection", record.id, target)
+			} else {
+				logger.Debugln("xxx sfu onReset not removed connection", record.id, target)
+			}
+		}
+	}()
 
 	return nil
 }

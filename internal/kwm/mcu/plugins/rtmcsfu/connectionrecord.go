@@ -190,7 +190,6 @@ func (record *ConnectionRecord) reset(parentCtx context.Context) {
 	record.isNegotiating = false
 	record.iceComplete = make(chan bool)
 	record.requestedTransceivers = &sync.Map{}
-	record.bound = nil
 	record.tracks = make(map[uint32]*webrtc.Track)
 	record.senders = make(map[uint32]*webrtc.RTPSender)
 	record.receivers = make(map[uint32]*webrtc.RTPReceiver)
@@ -206,10 +205,15 @@ func (record *ConnectionRecord) reset(parentCtx context.Context) {
 		}
 		record.onResetHandler = nil
 	}
+	record.bound = nil
 }
 
 func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*PeerConnection, error) {
 	sourceRecord := connectionRecord.owner
+	if sourceRecord == nil {
+		return nil, fmt.Errorf("refusing to create peer connection without owner")
+	}
+
 	state := connectionRecord.state
 	channel := connectionRecord.owner.channel
 
@@ -402,7 +406,7 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 						logger.Debugln("rrr removed killed user from channel")
 						owner := connectionRecord.owner
 						connectionRecord.owner = nil
-						go owner.close()
+						owner.close()
 					} else {
 						logger.Debugln("rrr default sender owner of closed peer connection not found in channel")
 						return
