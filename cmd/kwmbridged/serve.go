@@ -80,7 +80,12 @@ func serve(cmd *cobra.Command, args []string) error {
 	logger.Infoln("serve start")
 
 	deadlock.Opts.Disable = !detectDeadlocks
-	deadlock.Opts.DeadlockTimeout = 15 * time.Second
+	deadlock.Opts.DeadlockTimeout = 90 * time.Second // Must be longer than network timeouts.
+	deadlock.Opts.DisableLockOrderDetection = false
+	deadlock.Opts.OnPotentialDeadlock = func() {
+		logger.Warnln("potential deadlock encountered, check log for details, shutting down")
+		os.Exit(2)
+	}
 	if !deadlock.Opts.Disable {
 		logger.Warnln("enabled automatic deadlock detector")
 	}
