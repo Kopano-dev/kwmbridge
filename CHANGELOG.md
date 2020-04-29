@@ -4,6 +4,26 @@
 
 
 
+## v0.0.5 (2020-04-29)
+
+- Improve video bandwidth adjusting and initial value
+- Improve deadlock detection settings
+- Improve cleanup of unneeded connections
+- Improve locking while handling incoming webrtc signaling
+- Add option to disable deadlock detector and set deadlock timer to 15s
+- Use buffered iterator for channel connections to avoid dead lock
+- Improve connection reset and cleanup state
+- Unify REST API model keys
+- Improve REST API resource models
+- Add support to jitterbuffer stats via REST API
+- Disable REST API http request log
+- Implement REST API for kwm mcu plugins
+- Use deadlock detector
+- Fix deadlock when adding existing tracks to new pc
+- Add REST api base
+- Implement KWM P2P protocol on data channel
+
+
 ## v0.0.4 (2020-04-02)
 
 - Increase websocket size limit to match kwmserver
