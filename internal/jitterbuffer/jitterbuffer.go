@@ -40,7 +40,7 @@ import (
 
 const (
 	// bandwidth range(kbps)
-	minBandwidth = 200
+	minBandwidth = 50
 	maxBandwidth = 2000
 )
 
@@ -200,8 +200,8 @@ func (j *JitterBuffer) startRembLoop() {
 				bw = minBandwidth
 			}
 
-			if bw > uint64(j.config.Bandwidth) {
-				bw = uint64(j.config.Bandwidth)
+			if bw > maxBandwidth {
+				bw = maxBandwidth
 			}
 
 			remb := &rtcp.ReceiverEstimatedMaximumBitrate{
