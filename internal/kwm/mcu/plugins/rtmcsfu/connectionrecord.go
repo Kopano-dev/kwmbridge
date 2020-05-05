@@ -1151,12 +1151,24 @@ func (record *ConnectionRecord) addTrack(trackRecord *TrackRecord) (bool, error)
 		}
 
 		//record.owner.channel.logger.WithField("track_ssrc", track.SSRC()).Debugln("aaa adding transceiver from track")
-		transceiver, err := record.pc.AddTransceiverFromTrack(track, transceiverInit)
-		if err != nil {
-			return false, fmt.Errorf("failed to add transceiver from track to record: %w", err)
+		var sender *webrtc.RTPSender
+		if false {
+			// Pion before 1ba672fd111a needs manual add of transceiver. Later
+			// revisions do this automatically. Since the new behavior is how
+			// it should be, this section can eventually go away. See
+			// https://github.com/pion/webrtc/issues/1171 for details.
+			transceiver, addErr := record.pc.AddTransceiverFromTrack(track, transceiverInit)
+			if addErr != nil {
+				return false, fmt.Errorf("failed to add transceiver from track to record: %w", addErr)
+			}
+			sender = transceiver.Sender()
+		} else {
+			sender, err = record.pc.AddTrack(track)
+			if err != nil {
+				return false, fmt.Errorf("failed to add track to record: %w", err)
+			}
 		}
-		sender := transceiver.Sender()
-		//}
+
 		record.tracks[track.SSRC()] = track
 		record.senders[track.SSRC()] = sender
 

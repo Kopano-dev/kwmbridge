@@ -14,7 +14,7 @@ require (
 	github.com/pion/logging v0.2.2
 	github.com/pion/rtcp v1.2.1
 	github.com/pion/rtp v1.4.0
-	github.com/pion/webrtc/v2 v2.2.7
+	github.com/pion/webrtc/v2 v2.2.9-0.20200505120320-1ba672fd111a
 	github.com/prometheus/client_golang v1.5.1
 	github.com/prometheus/procfs v0.0.11 // indirect
 	github.com/rogpeppe/fastuuid v1.2.0
