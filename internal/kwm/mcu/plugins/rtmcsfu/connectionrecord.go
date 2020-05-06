@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
@@ -282,6 +283,39 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 		"target": connectionRecord.id,
 		"pcid":   connectionRecord.pcid,
 	})
+
+	defer func() {
+		// Initialize watcher.
+		go func() {
+			ctx, cancel := context.WithTimeout(connectionRecord.owner.channel.sfu.wsCtx, 35*time.Second)
+			defer cancel()
+
+			for {
+				connectionRecord.Lock()
+				if connectionRecord.pc != pc {
+					connectionRecord.Unlock()
+					return
+				}
+				logger.Debugln("uuu new pc connection check", pc.ConnectionState())
+				connectionRecord.Unlock()
+				if pc.ConnectionState() == webrtc.PeerConnectionStateConnected {
+					// Connected, exiting watcher.
+					return
+				}
+
+				select {
+				case <-time.After(5 * time.Second):
+					// breaks
+				case <-ctx.Done():
+					logger.Debugln("uuu new peer connection timeout waiting for connected state")
+					if closeErr := pc.Close(); closeErr != nil {
+						logger.WithError(closeErr).Debugln("uuu new peer connection timeout close failed")
+					}
+					return
+				}
+			}
+		}()
+	}()
 
 	// Create data channel when initiator.
 	if connectionRecord.initiator {
