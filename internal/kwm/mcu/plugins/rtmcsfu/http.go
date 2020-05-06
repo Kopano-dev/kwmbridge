@@ -227,9 +227,9 @@ type ChannelConnectionResource struct {
 
 	IsInitiator bool `json:"isInitiator"`
 
-	HasPeerConnection bool   `json:"hasPeerConnection"`
-	PCID              string `json:"pcid"`
-	State             string `json:"state"`
+	PeerConnection *ConnectionPeerConnectionResource `json:"peerConnection"`
+	PCID           string                            `json:"pcid"`
+	State          string                            `json:"state"`
 
 	PendingCandidatesCount uint64 `json:"pendingCandidatesCount"`
 
@@ -264,9 +264,9 @@ func NewChannelConnectionResource(key string, connectionRecord *ConnectionRecord
 
 		IsInitiator: connectionRecord.initiator,
 
-		HasPeerConnection: connectionRecord.pc != nil,
-		PCID:              connectionRecord.pcid,
-		State:             connectionRecord.state,
+		PeerConnection: NewConnectionPeerConnectionResource(connectionRecord.pc),
+		PCID:           connectionRecord.pcid,
+		State:          connectionRecord.state,
 
 		PendingCandidatesCount: uint64(len(connectionRecord.pendingCandidates)),
 
@@ -312,6 +312,40 @@ func NewChannelConnectionResource(key string, connectionRecord *ConnectionRecord
 	}
 
 	return resource
+}
+
+type ConnectionPeerConnectionResource struct {
+	ID string `json:"id"`
+
+	ConnectionState   string `json:"connectionState"`
+	SignalingState    string `json:"signalingState"`
+	ICEGatheringState string `json:"iceGatheringState"`
+
+	LocalDescription  *webrtc.SessionDescription `json:"localDescription"`
+	RemoteDescription *webrtc.SessionDescription `json:"remoteDescription"`
+
+	Stats *webrtc.StatsReport `json:"stats"`
+}
+
+func NewConnectionPeerConnectionResource(pc *PeerConnection) *ConnectionPeerConnectionResource {
+	if pc == nil {
+		return nil
+	}
+
+	stats := pc.GetStats()
+
+	return &ConnectionPeerConnectionResource{
+		ID: pc.ID(),
+
+		ConnectionState:   pc.ConnectionState().String(),
+		SignalingState:    pc.SignalingState().String(),
+		ICEGatheringState: pc.ICEGatheringState().String(),
+
+		LocalDescription:  pc.LocalDescription(),
+		RemoteDescription: pc.RemoteDescription(),
+
+		Stats: &stats,
+	}
 }
 
 type ConnectionTrackResource struct {
