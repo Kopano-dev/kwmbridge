@@ -6,6 +6,7 @@
 package rtmcsfu
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -770,10 +771,12 @@ func (channel *Channel) logMessage(text string, message interface{}) {
 }
 
 func (channel *Channel) send(message interface{}) error {
-	// TODO(longsleep): Use timemout context.
+	ctx, cancel := context.WithTimeout(channel.sfu.wsCtx, 30*time.Second)
+	defer cancel()
+
 	// TODO(longsleep): Run asynchronous.
 	var writer io.WriteCloser
-	writer, err := channel.sfu.ws.Writer(channel.sfu.wsCtx, websocket.MessageText)
+	writer, err := channel.sfu.ws.Writer(ctx, websocket.MessageText)
 	if err != nil {
 		return fmt.Errorf("failed to get websocket writer: %w", err)
 	}
