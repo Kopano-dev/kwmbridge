@@ -40,7 +40,7 @@ import (
 
 const (
 	// bandwidth range(kbps)
-	minBandwidth = 50
+	minBandwidth = 90
 	maxBandwidth = 2000
 )
 
