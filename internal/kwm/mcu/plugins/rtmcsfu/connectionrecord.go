@@ -109,7 +109,7 @@ func NewConnectionRecord(parentCtx context.Context, owner *UserRecord, target st
 			// TODO(longsleep): Figure out best values.
 			PLIInterval:  1,
 			RembInterval: 3,
-			Bandwidth:    300, // Starting bitrate.
+			Bandwidth:    700, // Starting bitrate.
 		})
 		err := record.jitterBuffer.Start(ctx)
 		if err != nil {
