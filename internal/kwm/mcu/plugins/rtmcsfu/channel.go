@@ -694,6 +694,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 						continue
 					} else if !added {
 						logger.WithField("track_ssrc", trackRecord.track.SSRC()).Warnln("ttt pending sfu track not added after add")
+						continue
 					} else {
 						delete(connectionRecord.pending, ssrc)
 					}
