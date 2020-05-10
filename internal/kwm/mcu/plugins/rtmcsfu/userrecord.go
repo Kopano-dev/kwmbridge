@@ -105,5 +105,5 @@ func (record *UserRecord) close() error {
 }
 
 func (record *UserRecord) isClosed() bool {
-	return atomic.LoadInt32(&record.closed) == 1
+	return record == nil || atomic.LoadInt32(&record.closed) == 1
 }
