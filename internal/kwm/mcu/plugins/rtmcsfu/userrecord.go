@@ -82,9 +82,15 @@ func (record *UserRecord) close() error {
 				if exists {
 					cr := r.(*ConnectionRecord)
 					cr.RLock()
-					defer cr.RUnlock()
-					logger.Debugln("xxx sfu user close target connection", record.id, target, cr.bound == record, cr.bound == nil)
-					return cr.bound == record || cr.bound == nil
+					remove := cr.bound == record || cr.bound == nil
+					defer func() {
+						if remove {
+							cr.reset(channel.sfu.wsCtx)
+						}
+						cr.RUnlock()
+					}()
+					logger.Debugln("xxx sfu user close target connection", record.id, target, remove, cr.bound == record, cr.bound == nil)
+					return remove
 				}
 				return false
 			}); removed {
