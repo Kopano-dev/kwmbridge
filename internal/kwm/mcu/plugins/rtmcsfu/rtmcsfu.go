@@ -283,7 +283,9 @@ func (sfu *RTMChannelSFU) handleWebRTCMessage(message *api.RTMTypeWebRTC) error 
 			sfu.logger.WithField("channel", message.Channel).Warnln("sfu got signal but has no channel")
 			return errors.New("no channel")
 		}
-		err = channel.handleWebRTCSignalMessage(message)
+		if signalErr := channel.handleWebRTCSignalMessage(message); signalErr != nil {
+			sfu.logger.WithError(signalErr).WithField("channel", message.Channel).Warnln("sfu channel error while signal processing")
+		}
 
 	case api.RTMSubtypeNameWebRTCHangup:
 		sfu.RLock()
@@ -293,7 +295,9 @@ func (sfu *RTMChannelSFU) handleWebRTCMessage(message *api.RTMTypeWebRTC) error 
 			// No channel, we do not care much about hangups.
 			return nil
 		}
-		err = channel.handleWebRTCHangupMessage(message)
+		if hangupErr := channel.handleWebRTCHangupMessage(message); hangupErr != nil {
+			sfu.logger.WithError(hangupErr).WithField("channel", message.Channel).Warnln("sfu channel error while hangup processing")
+		}
 
 	default:
 		sfu.logger.WithField("subtype", message.Subtype).Warnln("sfu received unknown webrtc message sub type")
