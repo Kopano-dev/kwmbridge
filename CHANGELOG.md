@@ -4,6 +4,21 @@
 
 
 
+## v0.0.6 (2020-05-10)
+
+- Fix race condition when checking for closed user record
+- Ensure to reset connection after removal
+- Cure panic in ICE agent
+- Increase start bandwidth from 300 to 600 kbps
+- Increase minimal bandwidth from 90 to 90 kbps
+- Skip pending not added tracks without triggering renegotiation
+- Expose peer connection states and stats in REST API
+- Add peer connection connectionstate timeout
+- Add timeout when sending to channel websocket
+- Use upstream pion and update to new behavior
+- Update 3rd party dependencies
+
+
 ## v0.0.5 (2020-04-29)
 
 - Improve video bandwidth adjusting and initial value
