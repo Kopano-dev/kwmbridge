@@ -4,7 +4,12 @@
 
 
 
-## v0.0.6 (2020-05-10)
+## v0.0.7 (2020-05-11)
+
+- Make errors of channel signal and hangup non fatal
+
+
+## v0.0.6 (2020-05-11)
 
 - Fix race condition when checking for closed user record
 - Ensure to reset connection after removal
