@@ -482,6 +482,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 
 			if connectionRecord.pc == nil {
 				if newPc, pcErr := connectionRecord.createPeerConnection(message.Pcid); pcErr != nil {
+					connectionRecord.reset(channel.sfu.wsCtx)
 					return fmt.Errorf("uuu failed to create new peer connection: %w", pcErr)
 				} else {
 					pc = newPc
@@ -515,6 +516,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 		if candidate.Candidate != "" { // Ensure candidate has data, some clients send empty candidates when their ICE has finished.
 			if pc != nil && pc.RemoteDescription() != nil {
 				if err = pc.AddICECandidate(candidate); err != nil {
+					connectionRecord.reset(channel.sfu.wsCtx)
 					return fmt.Errorf("failed to add ice candidate: %w", err)
 				}
 			} else {
@@ -615,6 +617,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 			// We must use the dynamic media types from the sender in our answers.
 			m := webrtc.MediaEngine{}
 			if populateErr := m.PopulateFromSDP(sessionDescription); populateErr != nil {
+				connectionRecord.reset(channel.sfu.wsCtx)
 				return fmt.Errorf("aaa failed to populate media engine from remote description: %w", populateErr)
 			}
 			for _, codec := range m.GetCodecsByKind(webrtc.RTPCodecTypeVideo) {
@@ -650,6 +653,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 				return nil
 			}
 			if newPc, pcErr := connectionRecord.createPeerConnection(""); pcErr != nil {
+				connectionRecord.reset(channel.sfu.wsCtx)
 				return fmt.Errorf("uuu failed to create new peer connection: %w", pcErr)
 			} else {
 				pc = newPc
@@ -662,6 +666,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 		}
 		if !ignore {
 			if err = pc.SetRemoteDescription(sessionDescription); err != nil {
+				connectionRecord.reset(channel.sfu.wsCtx)
 				return fmt.Errorf("failed to set remote description: %w", err)
 			}
 
@@ -671,6 +676,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 
 			for _, candidate := range connectionRecord.pendingCandidates {
 				if err = pc.AddICECandidate(*candidate); err != nil {
+					connectionRecord.reset(channel.sfu.wsCtx)
 					return fmt.Errorf("failed to add queued ice candidate: %w", err)
 				}
 			}
@@ -706,6 +712,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 				}
 
 				if err = connectionRecord.createAnswer(); err != nil {
+					connectionRecord.reset(channel.sfu.wsCtx)
 					return fmt.Errorf("failed to create answer for offer: %w", err)
 				}
 			}

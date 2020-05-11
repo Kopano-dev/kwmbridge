@@ -1077,6 +1077,7 @@ func (connectionRecord *ConnectionRecord) addTransceiver(kind webrtc.RTPCodecTyp
 			initArray = append(initArray, *init)
 		}
 		if _, err := connectionRecord.pc.AddTransceiverFromKind(kind, initArray...); err != nil {
+			connectionRecord.reset(channel.sfu.wsCtx)
 			return fmt.Errorf("kkk failed to add transceiver: %w", err)
 		}
 		channel.logger.WithField("pcid", connectionRecord.pcid).Debugln("kkk trigger negotiation after add transceiver", kind)
