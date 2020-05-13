@@ -185,8 +185,10 @@ func (record *ConnectionRecord) reset(parentCtx context.Context) {
 	record.pcid = ""
 	record.rpcid = ""
 	record.pendingCandidates = nil
-	close(record.needsNegotiation)
-	record.needsNegotiation = make(chan bool, 1)
+	select {
+	case <-record.needsNegotiation:
+	default:
+	}
 	record.queuedNegotiation = false
 	record.isNegotiating = false
 	record.iceComplete = make(chan bool)
