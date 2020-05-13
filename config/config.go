@@ -34,4 +34,5 @@ type Config struct {
 	ICEInterfaces            []string
 	ICENetworkTypes          []string
 	ICEEphemeralUDPPortRange [2]uint16
+	ICELite                  bool
 }

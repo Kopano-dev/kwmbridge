@@ -63,6 +63,7 @@ func commandServe() *cobra.Command {
 	serveCmd.Flags().StringArray("use-ice-network-type", nil, "ICE network type supported when gathering candidates, if not set all types (udp4, udp6, tcp4, tcp6) are enabled")
 	serveCmd.Flags().String("use-ice-udp-port-range", "", "Range of ephemeral ports that ICE UDP connections can allocate from in format min:max, if not set its not limited")
 	serveCmd.Flags().BoolVar(&detectDeadlocks, "with-deadlock-detector", detectDeadlocks, "Enable deadlock detection")
+	serveCmd.Flags().Bool("ice-lite", false, "Enable ICE Lite")
 
 	return serveCmd
 }
@@ -163,6 +164,7 @@ func serve(cmd *cobra.Command, args []string) error {
 			"max": config.ICEEphemeralUDPPortRange[1],
 		}).Infoln("limiting ICE port range")
 	}
+	config.ICELite, _ = cmd.Flags().GetBool("ice-lite")
 
 	var tlsClientConfig *tls.Config
 	tlsInsecureSkipVerify, _ := cmd.Flags().GetBool("insecure")

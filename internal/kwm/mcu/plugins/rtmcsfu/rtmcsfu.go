@@ -79,13 +79,17 @@ func New(attach *kwm.MCUTypeContainer, ws *websocket.Conn, options *mcu.Options)
 		"plugin":      attach.Plugin,
 	})
 
-	logger.Infoln("starting rtm channel sfu")
+	logger.WithFields(logrus.Fields{
+		"ICETrickle":       experimentICETrickle,
+		"ICELite":          options.Config.ICELite,
+		"ReplayProtection": experimentUseReplayProtection,
+	}).Infoln("starting rtm channel sfu")
 
 	s := webrtc.SettingEngine{
 		LoggerFactory: &loggerFactory{logger},
 	}
 	s.SetTrickle(experimentICETrickle)
-	s.SetLite(true)
+	s.SetLite(options.Config.ICELite)
 
 	if experimentUseReplayProtection {
 		s.SetDTLSReplayProtectionWindow(128)
