@@ -681,6 +681,9 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 									}*/
 									if writeErr := track.WriteRTP(pkt); writeErr != nil {
 										trackLogger.WithError(writeErr).WithField("sfu_track_src", pkt.SSRC).Errorln("ttt failed to write to sfu track")
+										targetConnection.Lock()
+										targetConnection.reset(targetConnection.owner.channel.sfu.wsCtx)
+										targetConnection.Unlock()
 									}
 								} else {
 									if count%1000 == 0 {
