@@ -29,7 +29,7 @@ import (
 // Experiments for inccomplete features.
 const (
 	experimentAddTransceiver               = true
-	experimentAlwaysAddTransceiverToSender = true
+	experimentAlwaysAddTransceiverToSender = false
 	experimentICETrickle                   = false // Buggy in pion/webrtc when using multiple answer/offers.
 	experimentUseRTCFBNack                 = true
 	experimentUseRTCFBTransportCC          = false // Causes bad video frame rate, not implemeneted?
