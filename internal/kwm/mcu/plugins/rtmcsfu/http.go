@@ -77,7 +77,6 @@ func (sfu *RTMChannelSFU) HTTPChannelHandler(rw http.ResponseWriter, req *http.R
 	resource := &ChannelResource{
 		When:    channel.when,
 		Channel: channel.channel,
-		Hash:    channel.hash,
 		Group:   channel.group,
 
 		Pipeline: channel.pipeline,
@@ -108,7 +107,6 @@ func (sfu *RTMChannelSFU) getChannelResourceOrWriteError(rw http.ResponseWriter)
 type ChannelResource struct {
 	When    time.Time `json:"when"`
 	Channel string    `json:"channel"`
-	Hash    string    `json:"hash"`
 	Group   string    `json:"group"`
 
 	Pipeline *kwmapi.RTMDataWebRTCChannelPipeline `json:"pipeline"`

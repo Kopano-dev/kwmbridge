@@ -33,7 +33,6 @@ type Channel struct {
 	logger logrus.FieldLogger
 
 	channel  string
-	hash     string
 	group    string
 	pipeline *api.RTMDataWebRTCChannelPipeline
 
@@ -69,7 +68,6 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 		logger: sfu.logger.WithField("channel", message.Channel),
 
 		channel:  message.Channel,
-		hash:     message.Hash,
 		group:    message.Group,
 		pipeline: extra.Pipeline,
 
@@ -309,7 +307,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 	var record interface{}
 	var err error
 
-	//channel.logger.Debugf("xxx signal from: %v", message.Source)
+	//channel.logger.Debugf("rrr signal from: %v", message.Source)
 	record = channel.connections.Upsert(message.Source, nil, func(ok bool, userRecord interface{}, n interface{}) interface{} {
 		if !ok {
 			//channel.logMessage("xxx trigger new userRecord", message)
@@ -375,14 +373,19 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 								channel.receiverCh <- connectionRecord
 							}
 						} else {
-							if err := connectionRecord.negotiationNeeded(); err != nil {
-								logger.WithError(err).Errorln("rrr failed to trigger negotiation while resurrecting")
+							if negotiationErr := connectionRecord.negotiationNeeded(); negotiationErr != nil {
+								logger.WithError(negotiationErr).Errorln("rrr failed to trigger negotiation while resurrecting")
 							}
 						}
 					}
 				} else {
 					logger.Debugln("rrr target exists, but no matching connection")
 					return
+				}
+			} else {
+				logger.Debugln("rrr target not exist, user missing sending call answer request")
+				if answerErr := channel.sendAnswer(message.Target, message.Source, message.Hash, message.State); answerErr != nil {
+					logger.WithError(answerErr).Errorln("rrr failed to send answer")
 				}
 			}
 		}()
@@ -442,7 +445,6 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 			connectionRecord.Unlock()
 		}
 	}()
-	//defer connectionRecord.maybeNegotiateAndUnlock()
 
 	if message.Pcid != connectionRecord.rpcid {
 		if connectionRecord.rpcid == "" {
@@ -460,10 +462,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 					"rpcid":     message.Pcid,
 					"pcid":      connectionRecord.pcid,
 				}).Debugln("uuu rpcid has changed, destroying old peer connection")
-				connectionRecord.pc = nil
-				connectionRecord.pcid = ""
-				pc.Close()
-				pc = nil
+				connectionRecord.clearPeerConnection()
 			}
 		}
 	}
@@ -807,10 +806,16 @@ func (channel *Channel) createSender(sourceRecord *UserRecord) (*ConnectionRecor
 	func() {
 		defaultSenderConnectionRecord.Lock()
 		defer defaultSenderConnectionRecord.maybeNegotiateAndUnlock()
+
 		select {
 		case <-channel.closed:
 			return // Do nothing when closed.
 		default:
+		}
+
+		if defaultSenderConnectionRecord.initiator {
+			// If initiator, something is wrong, since that is currently unsupported.
+			panic(errors.New("default sender is initiator, but this is not supported"))
 		}
 
 		// Directly trigger negotiate, for new default sender.
@@ -842,7 +847,6 @@ func (channel *Channel) sendCandidate(connectionRecord *ConnectionRecord, source
 		},
 		Version: WebRTCPayloadVersion,
 		Channel: channel.channel,
-		Hash:    channel.hash,
 		Target:  sourceRecord.id,
 		Source:  connectionRecord.id,
 		Group:   channel.group,
@@ -851,9 +855,42 @@ func (channel *Channel) sendCandidate(connectionRecord *ConnectionRecord, source
 		Data:    candidateDataBytes,
 	}
 
-	channel.logger.WithField("pcid", connectionRecord.pcid).Debugln(">>> sending candidate", sourceRecord.id)
+	channel.logger.WithField("pcid", connectionRecord.pcid).Debugln(">>> ccc sending candidate", sourceRecord.id)
 	if err = channel.send(out); err != nil {
 		return fmt.Errorf("failed to send candidate: %w", err)
+	}
+
+	return nil
+}
+
+func (channel *Channel) sendAnswer(targetID string, sourceID string, hash string, state string) error {
+	answerData := &api.RTMDataWebRTCAccept{
+		Accept: true,
+		State:  state,
+	}
+	answerDataBytes, err := json.MarshalIndent(answerData, "", "\t")
+	if err != nil {
+		return fmt.Errorf("failed to mashal answer data: %w", err)
+	}
+
+	out := &api.RTMTypeWebRTC{
+		RTMTypeSubtypeEnvelope: &api.RTMTypeSubtypeEnvelope{
+			Type:    api.RTMTypeNameWebRTC,
+			Subtype: api.RTMSubtypeNameWebRTCCall,
+		},
+		Version: WebRTCPayloadVersion,
+		Channel: channel.channel,
+		Target:  targetID,
+		Source:  sourceID,
+		Hash:    hash,
+		State:   state,
+		Group:   state, // Group id is in state here.
+		Data:    answerDataBytes,
+	}
+
+	channel.logger.WithField("target", targetID).Debugln(">>> rrr sending call answer", []string{sourceID, hash, state})
+	if err = channel.send(out); err != nil {
+		return fmt.Errorf("failed to send call answer: %w", err)
 	}
 
 	return nil

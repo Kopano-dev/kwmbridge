@@ -211,6 +211,41 @@ func (record *ConnectionRecord) reset(parentCtx context.Context) {
 	record.bound = nil
 }
 
+func (record *ConnectionRecord) clearPeerConnection() {
+	pc := record.pc
+	if pc == nil {
+		return
+	}
+
+	pc.Close()
+
+	record.pc = nil
+	record.pcid = ""
+	record.rpcid = ""
+	record.pendingCandidates = nil
+
+	if !record.initiator {
+		record.webrtcMedia = nil
+		record.webrtcAPI = nil
+	}
+
+	select {
+	case <-record.needsNegotiation:
+	default:
+	}
+	record.queuedNegotiation = false
+	record.isNegotiating = false
+	record.iceComplete = make(chan bool)
+	record.requestedTransceivers = &sync.Map{}
+	record.tracks = make(map[uint32]*webrtc.Track)
+	record.pending = make(map[uint32]*TrackRecord)
+
+	if record.rtcpCh != nil {
+		record.rtcpCh <- nil
+		record.rtcpCh = nil
+	}
+}
+
 func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*PeerConnection, error) {
 	sourceRecord := connectionRecord.owner
 	if sourceRecord == nil {
@@ -332,6 +367,51 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 		}
 	}
 
+	destroy := func() {
+		connectionRecord.Lock()
+		logger.Debugln("rrr destroy", connectionRecord.pipeline != nil, connectionRecord.owner != nil)
+
+		select {
+		case <-channel.closed:
+			logger.Debugln("rrr destroy does nothing, channel is closed")
+			connectionRecord.Unlock()
+			return // Do nothing when closed.
+		default:
+		}
+		if connectionRecord.pc != nil && connectionRecord.pc != pc {
+			logger.Debugln("rrr destroy does nothing, pc is already replaced", connectionRecord.pc == nil)
+			connectionRecord.Unlock()
+			return // Do nothing when replaced.
+		}
+		defer func() {
+			logger.Debugln("rrr destroy connection record")
+			connectionRecord.reset(channel.sfu.wsCtx)
+			connectionRecord.Unlock()
+		}()
+
+		if connectionRecord.pipeline != nil && connectionRecord.owner != nil {
+			// Having a pipeline connected means, this is a special connection, look further.
+			if record, ok := connectionRecord.owner.publishers.Get("default"); ok && record == connectionRecord {
+				// This is the default record, kill off everything of that user.
+				logger.Debugln("rrr default sender is closed, killing off user")
+				if removed := channel.connections.RemoveCb(connectionRecord.owner.id, func(key string, record interface{}, exists bool) bool {
+					if exists && record == connectionRecord.owner {
+						return true
+					}
+					return false
+				}); removed {
+					logger.Debugln("rrr removed killed user from channel")
+					owner := connectionRecord.owner
+					connectionRecord.owner = nil
+					owner.close()
+				} else {
+					logger.Debugln("rrr default sender owner of closed peer connection not found in channel")
+					return
+				}
+			}
+		}
+	}
+
 	// TODO(longsleep): Bind all event handlers to pcid.
 	pc.OnSignalingStateChange(func(signalingState webrtc.SignalingState) {
 		logger.Debugln("ppp onSignalingStateChange", signalingState)
@@ -406,49 +486,20 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 			}
 		}
 	})
+	pc.OnICEConnectionStateChange(func(iceConnectionState webrtc.ICEConnectionState) {
+		logger.Debugln("rrr onICEConnectionStateChange", iceConnectionState)
+
+		if iceConnectionState == webrtc.ICEConnectionStateClosed {
+			logger.Debugln("rrr ice connection state is closed, trigger destroy")
+			destroy()
+		}
+	})
 	pc.OnConnectionStateChange(func(connectionState webrtc.PeerConnectionState) {
 		logger.Debugln("rrr onConnectionStateChange", connectionState)
 
-		if connectionState == webrtc.PeerConnectionStateClosed {
-			connectionRecord.Lock()
-			defer func() {
-				connectionRecord.reset(channel.sfu.wsCtx)
-				connectionRecord.Unlock()
-			}()
-			select {
-			case <-channel.closed:
-				return // Do nothing when closed.
-			default:
-			}
-
-			if connectionRecord.pipeline != nil && connectionRecord.owner != nil {
-				// Having a pipeline connected, means this is a special connection, look further.
-
-				if connectionRecord.pc != nil && connectionRecord.pc != pc {
-					// This connection has been replaced already, do nothing.
-					logger.Debugln("rrr ignored close on different porentially replaced connection")
-					return
-				}
-
-				if record, ok := connectionRecord.owner.publishers.Get("default"); ok && record == connectionRecord {
-					// This is the default record, kill off everything of that user.
-					logger.Debugln("rrr default sender is closed, killing off user")
-					if removed := channel.connections.RemoveCb(connectionRecord.owner.id, func(key string, record interface{}, exists bool) bool {
-						if exists && record == connectionRecord.owner {
-							return true
-						}
-						return false
-					}); removed {
-						logger.Debugln("rrr removed killed user from channel")
-						owner := connectionRecord.owner
-						connectionRecord.owner = nil
-						owner.close()
-					} else {
-						logger.Debugln("rrr default sender owner of closed peer connection not found in channel")
-						return
-					}
-				}
-			}
+		if connectionState == webrtc.PeerConnectionStateClosed || connectionState == webrtc.PeerConnectionStateFailed {
+			logger.Debugln("rrr connection state is closed, trigger destroy")
+			destroy()
 		}
 	})
 	pc.OnTrack(func(remoteTrack *webrtc.Track, receiver *webrtc.RTPReceiver) {
@@ -886,7 +937,6 @@ func (connectionRecord *ConnectionRecord) createOffer() error {
 		},
 		Version: WebRTCPayloadVersion,
 		Channel: channel.channel,
-		Hash:    channel.hash,
 		Target:  sourceRecord.id,
 		Source:  connectionRecord.id,
 		Group:   channel.group,
@@ -930,7 +980,6 @@ func (connectionRecord *ConnectionRecord) createAnswer() error {
 		},
 		Version: WebRTCPayloadVersion,
 		Channel: channel.channel,
-		Hash:    channel.hash,
 		Target:  sourceRecord.id,
 		Source:  connectionRecord.id,
 		Group:   channel.group,
@@ -1009,7 +1058,6 @@ func (connectionRecord *ConnectionRecord) negotiate() error {
 				},
 				Version: WebRTCPayloadVersion,
 				Channel: channel.channel,
-				Hash:    channel.hash,
 				Target:  sourceRecord.id,
 				Source:  connectionRecord.id,
 				Group:   channel.group,
@@ -1135,7 +1183,6 @@ func (connectionRecord *ConnectionRecord) addTransceiver(kind webrtc.RTPCodecTyp
 			},
 			Version: WebRTCPayloadVersion,
 			Channel: channel.channel,
-			Hash:    channel.hash,
 			Target:  sourceRecord.id,
 			Source:  connectionRecord.id,
 			Group:   channel.group,
