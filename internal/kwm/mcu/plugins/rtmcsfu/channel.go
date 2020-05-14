@@ -346,7 +346,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 
 	} else {
 		defer func() {
-			if record, ok := channel.connections.Get(message.Target); ok {
+			if record, ok := channel.connections.Get(message.Target); ok && sendCallAnswer {
 				// Target already exists, get connection to source and make sure it works.
 				targetRecord := record.(*UserRecord)
 				if targetRecord.isClosed() {
