@@ -137,6 +137,8 @@ github.com/konsorten/go-windows-terminal-sequences v1.0.2 h1:DB17ag19krx9CFsz4o3
 github.com/konsorten/go-windows-terminal-sequences v1.0.2/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=
 github.com/konsorten/go-windows-terminal-sequences v1.0.3 h1:CE8S1cTafDpPvMhIxNJKvHsGVBgn1xWYf1NbHQhywc8=
 github.com/konsorten/go-windows-terminal-sequences v1.0.3/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=
+github.com/kopano-dev/webrtc/v2 v2.2.4-0.20200514145145-f9753c3b4576 h1:Tp11EAILpxJRrRRnOABOA0vMe2Pv6++6AzqKrJu8KW4=
+github.com/kopano-dev/webrtc/v2 v2.2.4-0.20200514145145-f9753c3b4576/go.mod h1:gJ8wA3LqCRE74O+YpA3a9D27poEdnQWLlTOfMCoyB9M=
 github.com/kr/logfmt v0.0.0-20140226030751-b84e30acd515/go.mod h1:+0opPa2QZZtGFBFZlji/RkVcI2GknAs/DXo4wKdlNEc=
 github.com/kr/pretty v0.1.0 h1:L/CwN0zerZDmRFUapSPitk6f+Q3+0za1rQkzVuMiMFI=
 github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORNo=
@@ -222,8 +224,6 @@ github.com/pion/transport v0.10.0 h1:9M12BSneJm6ggGhJyWpDveFOstJsTiQjkLf4M44rm80
 github.com/pion/transport v0.10.0/go.mod h1:BnHnUipd0rZQyTVB2SBGojFHT9CBt5C5TcsJSQGkvSE=
 github.com/pion/turn/v2 v2.0.3 h1:SJUUIbcPoehlyZgMyIUbBBDhI03sBx32x3JuSIBKBWA=
 github.com/pion/turn/v2 v2.0.3/go.mod h1:kl1hmT3NxcLynpXVnwJgObL8C9NaCyPTeqI2DcCpSZs=
-github.com/pion/webrtc/v2 v2.2.11 h1:JrgwKXqa78yatfu9g2CgxQ+SBb2UdkrSxCXvL9YMt34=
-github.com/pion/webrtc/v2 v2.2.11/go.mod h1:gJ8wA3LqCRE74O+YpA3a9D27poEdnQWLlTOfMCoyB9M=
 github.com/pkg/errors v0.8.0/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pkg/errors v0.8.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
