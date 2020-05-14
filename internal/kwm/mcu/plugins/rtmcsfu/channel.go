@@ -332,6 +332,8 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 		"target": message.Target,
 	})
 
+	sendCallAnswer := false
+
 	if message.Target == channel.pipeline.Pipeline {
 		record = sourceRecord.publishers.Upsert("default", nil, func(ok bool, userRecord interface{}, n interface{}) interface{} {
 			if !ok {
@@ -382,7 +384,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 					logger.Debugln("rrr target exists, but no matching connection")
 					return
 				}
-			} else {
+			} else if sendCallAnswer {
 				logger.Debugln("rrr target not exist, user missing sending call answer request")
 				if answerErr := channel.sendAnswer(message.Target, message.Source, message.Hash, message.State); answerErr != nil {
 					logger.WithError(answerErr).Errorln("rrr failed to send answer")
@@ -668,6 +670,8 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 			unlock()
 		}
 		if !ignore {
+			sendCallAnswer = true
+
 			if err = pc.SetRemoteDescription(sessionDescription); err != nil {
 				connectionRecord.reset(channel.sfu.wsCtx)
 				return fmt.Errorf("failed to set remote description: %w", err)
