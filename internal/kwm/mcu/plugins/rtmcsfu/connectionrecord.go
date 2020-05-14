@@ -929,6 +929,8 @@ func (connectionRecord *ConnectionRecord) createOffer() error {
 		return fmt.Errorf("failed to mashal offer sdp: %w", err)
 	}
 
+	//connectionRecord.owner.channel.sfu.logger.Debugln("<<< mmm sdp offer", string(sdpBytes))
+
 	out := &api.RTMTypeWebRTC{
 		RTMTypeSubtypeEnvelope: &api.RTMTypeSubtypeEnvelope{
 			Type:    api.RTMTypeNameWebRTC,
@@ -971,6 +973,8 @@ func (connectionRecord *ConnectionRecord) createAnswer() error {
 	if err != nil {
 		return fmt.Errorf("failed to mashal answer sdp: %w", err)
 	}
+
+	//connectionRecord.owner.channel.sfu.logger.Debugln("<<< mmm sdp answer", string(sdpBytes))
 
 	out := &api.RTMTypeWebRTC{
 		RTMTypeSubtypeEnvelope: &api.RTMTypeSubtypeEnvelope{

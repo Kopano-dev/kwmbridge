@@ -507,6 +507,8 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 	}
 
 	if len(signal.Candidate) > 0 {
+		//logger.Debugln(">>> mmm candiate", string(signal.Candidate))
+
 		found = true
 		var candidate webrtc.ICECandidateInit
 		if err = json.Unmarshal(signal.Candidate, &candidate); err != nil {
@@ -525,6 +527,8 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 	}
 
 	if len(signal.SDP) > 0 {
+		//logger.Debugln(">>> mmm sdp", string(signal.Type), string(signal.SDP))
+
 		initiator := connectionRecord.initiator
 		unlock()
 
