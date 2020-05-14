@@ -821,11 +821,6 @@ func (channel *Channel) createSender(sourceRecord *UserRecord) (*ConnectionRecor
 		default:
 		}
 
-		if defaultSenderConnectionRecord.initiator {
-			// If initiator, something is wrong, since that is currently unsupported.
-			panic(errors.New("default sender is initiator, but this is not supported"))
-		}
-
 		// Directly trigger negotiate, for new default sender.
 		if negotiateErr := defaultSenderConnectionRecord.negotiationNeeded(); negotiateErr != nil {
 			channel.logger.WithError(negotiateErr).Errorln("uuu failed to trigger sender negotiation")
