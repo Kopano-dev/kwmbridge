@@ -8,13 +8,13 @@ require (
 	github.com/klauspost/compress v1.10.5 // indirect
 	github.com/konsorten/go-windows-terminal-sequences v1.0.3 // indirect
 	github.com/longsleep/go-metrics v0.0.0-20191013204616-cddea569b0ea
-	github.com/lucas-clemente/quic-go v0.15.5 // indirect
+	github.com/lucas-clemente/quic-go v0.15.7 // indirect
 	github.com/orcaman/concurrent-map v0.0.0-20190826125027-8c72a8bb44f6
 	github.com/petermattis/goid v0.0.0-20180202154549-b0b1615b78e5 // indirect
 	github.com/pion/logging v0.2.2
 	github.com/pion/rtcp v1.2.1
-	github.com/pion/rtp v1.4.0
-	github.com/pion/webrtc/v2 v2.2.9-0.20200505120320-1ba672fd111a
+	github.com/pion/rtp v1.5.0
+	github.com/pion/webrtc/v2 v2.2.11
 	github.com/prometheus/client_golang v1.5.1
 	github.com/prometheus/procfs v0.0.11 // indirect
 	github.com/rogpeppe/fastuuid v1.2.0
@@ -34,5 +34,3 @@ require (
 replace nhooyr.io/websocket => github.com/nhooyr/websocket v1.8.5 // Fetch directly from Github
 
 replace github.com/marten-seemann/qtls => github.com/marten-seemann/qtls v0.9.1 // Pin version with license
-
-replace github.com/pion/webrtc/v2 => github.com/kopano-dev/webrtc/v2 v2.2.4-0.20200507164205-d3e1285c72c5
