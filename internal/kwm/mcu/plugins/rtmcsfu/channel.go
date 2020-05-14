@@ -142,7 +142,7 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 						default:
 						}
 						pc := connectionRecord.pc
-						if pc == nil || connectionRecord.owner == nil {
+						if pc == nil || connectionRecord.owner.isClosed() {
 							// No peer connection in this record, skip.
 							logger.Debugln("ooo no peer connection on sfu target, skipping")
 							return
@@ -230,7 +230,7 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 					}
 					logger.Debugln("sss sfu using connection", connectionRecord.id)
 					pc := connectionRecord.pc
-					if pc == nil || connectionRecord.owner == nil {
+					if pc == nil || connectionRecord.owner.isClosed() {
 						// No peer connection in our record, do nothing.
 						return
 					}

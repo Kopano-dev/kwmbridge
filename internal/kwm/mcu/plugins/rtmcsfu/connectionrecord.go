@@ -402,7 +402,6 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 				}); removed {
 					logger.Debugln("rrr removed killed user from channel")
 					owner := connectionRecord.owner
-					connectionRecord.owner = nil
 					owner.close()
 				} else {
 					logger.Debugln("rrr default sender owner of closed peer connection not found in channel")
@@ -520,7 +519,7 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 			return // Do nothing when closed.
 		default:
 		}
-		if connectionRecord.pc != pc || connectionRecord.owner == nil {
+		if connectionRecord.pc != pc || connectionRecord.owner.isClosed() {
 			// Replaced, do nothing.
 			connectionRecord.Unlock()
 			return
@@ -706,7 +705,7 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 
 								// Lock target, check and get tracks and payload table.
 								targetConnection.RLock()
-								if targetConnection.owner == nil {
+								if targetConnection.owner.isClosed() {
 									targetConnection.RUnlock()
 									return
 								}
