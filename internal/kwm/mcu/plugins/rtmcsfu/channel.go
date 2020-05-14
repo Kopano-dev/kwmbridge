@@ -549,7 +549,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 		}*/
 
 		haveRemoteDescription := pc != nil && pc.CurrentRemoteDescription() != nil
-		if haveRemoteDescription {
+		if false && haveRemoteDescription {
 			//logger.Debugln(">>> kkk sdp signal while already having remote description set")
 			timeout := time.After(5 * time.Second)
 			for {
