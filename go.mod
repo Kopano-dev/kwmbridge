@@ -13,7 +13,7 @@ require (
 	github.com/petermattis/goid v0.0.0-20180202154549-b0b1615b78e5 // indirect
 	github.com/pion/logging v0.2.2
 	github.com/pion/rtcp v1.2.1
-	github.com/pion/rtp v1.5.0
+	github.com/pion/rtp v1.5.1
 	github.com/pion/webrtc/v2 v2.2.11
 	github.com/prometheus/client_golang v1.5.1
 	github.com/prometheus/procfs v0.0.11 // indirect
