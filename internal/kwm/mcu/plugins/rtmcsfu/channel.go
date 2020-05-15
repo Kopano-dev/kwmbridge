@@ -385,9 +385,9 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 					return
 				}
 			} else if sendCallAnswer {
-				logger.Debugln("rrr target not exist, user missing sending call answer request")
-				if answerErr := channel.sendAnswer(message.Target, message.Source, message.Hash, message.State); answerErr != nil {
-					logger.WithError(answerErr).Errorln("rrr failed to send answer")
+				logger.Debugln("rrr target not exist, user missing sending noop renegotiate")
+				if answerErr := channel.sendNoopRenegotiate(message.Target, message.Source, message.Hash, message.State); answerErr != nil {
+					logger.WithError(answerErr).Errorln("rrr failed to send noop renegotiate")
 				}
 			}
 		}()
@@ -868,12 +868,12 @@ func (channel *Channel) sendCandidate(connectionRecord *ConnectionRecord, source
 	return nil
 }
 
-func (channel *Channel) sendAnswer(targetID string, sourceID string, hash string, state string) error {
-	answerData := &api.RTMDataWebRTCAccept{
-		Accept: true,
-		State:  state,
+func (channel *Channel) sendNoopRenegotiate(targetID string, sourceID string, hash string, state string) error {
+	noopData := &kwm.RTMDataWebRTCSignal{
+		Renegotiate: true,
+		Noop:        true,
 	}
-	answerDataBytes, err := json.MarshalIndent(answerData, "", "\t")
+	noopDataBytes, err := json.MarshalIndent(noopData, "", "\t")
 	if err != nil {
 		return fmt.Errorf("failed to mashal answer data: %w", err)
 	}
@@ -881,7 +881,7 @@ func (channel *Channel) sendAnswer(targetID string, sourceID string, hash string
 	out := &api.RTMTypeWebRTC{
 		RTMTypeSubtypeEnvelope: &api.RTMTypeSubtypeEnvelope{
 			Type:    api.RTMTypeNameWebRTC,
-			Subtype: api.RTMSubtypeNameWebRTCCall,
+			Subtype: api.RTMSubtypeNameWebRTCSignal,
 		},
 		Version: WebRTCPayloadVersion,
 		Channel: channel.channel,
@@ -890,7 +890,7 @@ func (channel *Channel) sendAnswer(targetID string, sourceID string, hash string
 		Hash:    hash,
 		State:   state,
 		Group:   state, // Group id is in state here.
-		Data:    answerDataBytes,
+		Data:    noopDataBytes,
 	}
 
 	channel.logger.WithField("target", targetID).Debugln(">>> rrr sending call noop renegotiate", []string{sourceID, hash, state})
