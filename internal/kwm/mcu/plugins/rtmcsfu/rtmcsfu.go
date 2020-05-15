@@ -34,6 +34,7 @@ const (
 	experimentUseRTCFBNack                 = true
 	experimentUseRTCFBTransportCC          = false // Causes bad video frame rate, not implemeneted?
 	experimentUseReplayProtection          = false // Causes lot of replay log messages on info level.
+	experimentLogSDP                       = false // Logs all SDP in and out
 )
 
 const (

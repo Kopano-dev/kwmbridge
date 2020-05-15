@@ -509,7 +509,7 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 	}
 
 	if len(signal.Candidate) > 0 {
-		//logger.Debugln(">>> mmm candiate", string(signal.Candidate))
+		//logger.WithField("candidate", string(message.Data)).Debugln(">>> mmm inc candiate"))
 
 		found = true
 		var candidate webrtc.ICECandidateInit
@@ -529,7 +529,9 @@ func (channel *Channel) handleWebRTCSignalMessage(message *api.RTMTypeWebRTC) er
 	}
 
 	if len(signal.SDP) > 0 {
-		//logger.Debugln(">>> mmm sdp", string(signal.Type), string(signal.SDP))
+		if experimentLogSDP {
+			logger.WithField("sdp", string(message.Data)).Debugln(">>> inc mmm sdp")
+		}
 
 		initiator := connectionRecord.initiator
 		unlock()
@@ -891,7 +893,7 @@ func (channel *Channel) sendAnswer(targetID string, sourceID string, hash string
 		Data:    answerDataBytes,
 	}
 
-	channel.logger.WithField("target", targetID).Debugln(">>> rrr sending call answer", []string{sourceID, hash, state})
+	channel.logger.WithField("target", targetID).Debugln(">>> rrr sending call noop renegotiate", []string{sourceID, hash, state})
 	if err = channel.send(out); err != nil {
 		return fmt.Errorf("failed to send call answer: %w", err)
 	}
