@@ -35,4 +35,4 @@ replace nhooyr.io/websocket => github.com/nhooyr/websocket v1.8.5 // Fetch direc
 
 replace github.com/marten-seemann/qtls => github.com/marten-seemann/qtls v0.9.1 // Pin version with license
 
-replace github.com/pion/webrtc/v2 => github.com/kopano-dev/webrtc/v2 v2.2.4-0.20200514145145-f9753c3b4576
+replace github.com/pion/webrtc/v2 => github.com/kopano-dev/webrtc/v2 v2.2.4-0.20200515162851-a6959b6b8e10
