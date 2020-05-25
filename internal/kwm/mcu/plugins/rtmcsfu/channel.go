@@ -102,6 +102,7 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 					"sfu_a":      index,
 					"remove":     remove,
 					"track_ssrc": track.SSRC(),
+					"p2p":        trackRecord.p2p != nil,
 				})
 				logger.Debugln("ooo got local sfu track change")
 
@@ -122,60 +123,113 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 							return
 						}
 
-						logger = logger.WithField("target", target)
+						l := logger.WithField("target", target)
 
-						logger.Debugln("ooo sfu track target")
+						l.Debugln("ooo sfu track target")
 
 						var ok bool
 						record, ok = targetRecord.connections.Get(trackRecord.source.id)
 						if !ok {
-							logger.Warnln("ooo updating sfu track to target which does not have a matching source connection")
+							l.Warnln("ooo updating sfu track to target which does not have a matching source connection")
 							return
 						}
 						connectionRecord := record.(*ConnectionRecord)
-						logger.Debugln("ooo sfu using connection", connectionRecord.id)
-						connectionRecord.Lock()
-						defer connectionRecord.maybeNegotiateAndUnlock()
-						select {
-						case <-channel.closed:
-							return // Do nothing when closed.
-						default:
-						}
-						pc := connectionRecord.pc
-						if pc == nil || connectionRecord.owner.isClosed() {
-							// No peer connection in this record, skip.
-							logger.Debugln("ooo no peer connection on sfu target, skipping")
-							return
-						}
+						l.Debugln("ooo sfu using connection", connectionRecord.id)
 
-						if remove {
-							logger.WithFields(logrus.Fields{
-								"track_id":    track.ID(),
-								"track_label": track.Label(),
-								"track_kind":  track.Kind(),
-								"track_type":  track.PayloadType(),
-							}).Debugln("www ooo sfu remove track to target")
-							if _, removeErr := connectionRecord.removeTrack(trackRecord); removeErr != nil {
-								logger.WithError(removeErr).WithField("track_id", track.ID()).Errorln("www ooo remove sfu track from target failed")
+						if trackRecord.p2p != nil {
+							record, ok = connectionRecord.p2p.callbacks.Get(trackRecord.p2p.token)
+							if !ok {
+								logger.Debugln("qqq jjj p2p no stream record on sfu target, skipping")
+								return
+							}
+							p2pRecord := record.(*P2PRecord)
+							p2pRecord.Lock()
+							defer p2pRecord.maybeNegotiateAndUnlock()
+							select {
+							case <-channel.closed:
+								return // Do nothing when closed.
+							default:
+							}
+							pc := p2pRecord.pc
+							if pc == nil {
+								// No peer connection in this record, skip.
+								logger.Debugln("qqq jjj p2p no peer connection on sfu target, skipping")
+								return
+							}
+
+							if remove {
+								l.WithFields(logrus.Fields{
+									"track_id":    track.ID(),
+									"track_label": track.Label(),
+									"track_kind":  track.Kind(),
+									"track_type":  track.PayloadType(),
+								}).Debugln("qqq jjj p2p sfu remove track to target")
+								if _, removeErr := p2pRecord.removeTrack(trackRecord); removeErr != nil {
+									l.WithError(removeErr).WithField("track_id", track.ID()).Errorln("jjj p2p remove sfu track from target failed")
+									return
+								}
+							} else {
+								l.WithFields(logrus.Fields{
+									"track_id":    track.ID(),
+									"track_label": track.Label(),
+									"track_kind":  track.Kind(),
+									"track_type":  track.PayloadType(),
+								}).Debugln("qqq jjj p2p sfu add track to target")
+								if _, addErr := p2pRecord.addTrack(trackRecord); addErr != nil {
+									l.WithError(addErr).WithField("track_id", track.ID()).Errorln("jjj p2padd sfu track to target failed")
+									return
+								}
+							}
+
+							if negotiateErr := p2pRecord.negotiationNeeded(); negotiateErr != nil {
+								l.WithError(negotiateErr).Errorln("jjj p2p failed to trigger sfu update track negotiation")
+								// TODO(longsleep): Figure out what to do here.
 								return
 							}
 						} else {
-							logger.WithFields(logrus.Fields{
-								"track_id":    track.ID(),
-								"track_label": track.Label(),
-								"track_kind":  track.Kind(),
-								"track_type":  track.PayloadType(),
-							}).Debugln("www ooo sfu add track to target")
-							if _, addErr := connectionRecord.addTrack(trackRecord); addErr != nil {
-								logger.WithError(addErr).WithField("track_id", track.ID()).Errorln("www ooo add sfu track to target failed")
+							connectionRecord.Lock()
+							defer connectionRecord.maybeNegotiateAndUnlock()
+							select {
+							case <-channel.closed:
+								return // Do nothing when closed.
+							default:
+							}
+							pc := connectionRecord.pc
+							if pc == nil || connectionRecord.owner.isClosed() {
+								// No peer connection in this record, skip.
+								logger.Debugln("ooo no peer connection on sfu target, skipping")
 								return
 							}
-						}
 
-						if negotiateErr := connectionRecord.negotiationNeeded(); negotiateErr != nil {
-							logger.WithError(negotiateErr).Errorln("www ooo failed to trigger sfu update track negotiation")
-							// TODO(longsleep): Figure out what to do here.
-							return
+							if remove {
+								l.WithFields(logrus.Fields{
+									"track_id":    track.ID(),
+									"track_label": track.Label(),
+									"track_kind":  track.Kind(),
+									"track_type":  track.PayloadType(),
+								}).Debugln("www ooo sfu remove track to target")
+								if _, removeErr := connectionRecord.removeTrack(trackRecord); removeErr != nil {
+									l.WithError(removeErr).WithField("track_id", track.ID()).Errorln("www ooo remove sfu track from target failed")
+									return
+								}
+							} else {
+								l.WithFields(logrus.Fields{
+									"track_id":    track.ID(),
+									"track_label": track.Label(),
+									"track_kind":  track.Kind(),
+									"track_type":  track.PayloadType(),
+								}).Debugln("www ooo sfu add track to target")
+								if _, addErr := connectionRecord.addTrack(trackRecord); addErr != nil {
+									l.WithError(addErr).WithField("track_id", track.ID()).Errorln("www ooo add sfu track to target failed")
+									return
+								}
+							}
+
+							if negotiateErr := connectionRecord.negotiationNeeded(); negotiateErr != nil {
+								l.WithError(negotiateErr).Errorln("www ooo failed to trigger sfu update track negotiation")
+								// TODO(longsleep): Figure out what to do here.
+								return
+							}
 						}
 					}()
 				}
@@ -282,6 +336,19 @@ func NewChannel(sfu *RTMChannelSFU, message *api.RTMTypeWebRTC) (*Channel, error
 						}
 					} else {
 						logger.Debugln("www sss sfu target is already up to date")
+					}
+
+					senderRecord.p2p.RLock()
+					defer senderRecord.p2p.RUnlock()
+					for id, streamRecord := range senderRecord.p2p.streams {
+						logger.WithFields(logrus.Fields{
+							"sender":        senderRecord.owner.id,
+							"p2p_stream_id": id,
+						}).Debugln("qqq lll p2p announce sfu track to target")
+						if announceErr := connectionRecord.p2p.announceStreams([]*StreamRecord{streamRecord}, false); announceErr != nil {
+							logger.WithError(announceErr).WithField("p2p_stream_id", id).Errorln("qqq lll p2p announce track to target failed")
+							return
+						}
 					}
 				}()
 

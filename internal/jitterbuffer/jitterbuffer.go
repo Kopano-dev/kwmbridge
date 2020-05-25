@@ -40,8 +40,8 @@ import (
 
 const (
 	// bandwidth range(kbps)
-	minBandwidth = 90
-	maxBandwidth = 2000
+	defaultMinBandwidth uint64 = 90
+	defaultMaxBandwidth uint64 = 2000
 )
 
 type Config struct {
@@ -49,7 +49,9 @@ type Config struct {
 
 	PLIInterval  int
 	RembInterval int
-	Bandwidth    int
+	Bandwidth    uint64
+	MaxBandwidth uint64
+	MinBandwidth uint64
 }
 
 type JitterBuffer struct {
@@ -75,10 +77,16 @@ func New(id string, config *Config) *JitterBuffer {
 		config: config,
 	}
 
-	if config.Bandwidth < minBandwidth {
-		config.Bandwidth = minBandwidth
-	} else if config.Bandwidth > maxBandwidth {
-		config.Bandwidth = maxBandwidth
+	if config.MinBandwidth == 0 {
+		config.MinBandwidth = defaultMinBandwidth
+	}
+	if config.MaxBandwidth == 0 {
+		config.MaxBandwidth = defaultMaxBandwidth
+	}
+	if config.Bandwidth < config.MinBandwidth {
+		config.Bandwidth = config.MinBandwidth
+	} else if config.Bandwidth > config.MaxBandwidth {
+		config.Bandwidth = config.MaxBandwidth
 	}
 
 	return j
@@ -196,12 +204,12 @@ func (j *JitterBuffer) startRembLoop() {
 				bw = uint64(float64(bandwidth) * (1 - lostRate))
 			}
 
-			if bw < minBandwidth {
-				bw = minBandwidth
+			if bw < j.config.MinBandwidth {
+				bw = j.config.MinBandwidth
 			}
 
-			if bw > maxBandwidth {
-				bw = maxBandwidth
+			if bw > j.config.MaxBandwidth {
+				bw = j.config.MaxBandwidth
 			}
 
 			remb := &rtcp.ReceiverEstimatedMaximumBitrate{

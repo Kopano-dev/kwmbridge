@@ -236,17 +236,25 @@ func (sfu *RTMChannelSFU) readPump() error {
 
 		message := &webrtcMessage{}
 		err = json.Unmarshal(b.Bytes(), message)
-		bpool.Put(b)
 		if err != nil {
+			bpool.Put(b)
 			sfu.logger.WithError(err).Errorln("sfu websocket message parse error")
 			continue
 		}
 
 		switch message.Type {
 		case "webrtc":
-			err = sfu.handleWebRTCMessage(message.RTMTypeWebRTC)
+			m := &api.RTMTypeWebRTC{}
+			if unmarshalErr := json.Unmarshal(b.Bytes(), m); unmarshalErr != nil {
+				bpool.Put(b)
+				sfu.logger.WithError(unmarshalErr).Errorln("sfu websocket webrtc message parse error")
+				continue
+			}
+			bpool.Put(b)
+			err = sfu.handleWebRTCMessage(m)
 
 		default:
+			bpool.Put(b)
 			sfu.logger.WithField("type", message.RTMTypeEnvelope.Type).Warnln("sfu received unknown rtm message type")
 			continue
 		}

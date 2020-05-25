@@ -42,11 +42,19 @@ type RTMDataTransceiverRequestInit struct {
 	Direction string `json:"direction,omitempty"`
 }
 
-type P2PTypeHandshake struct {
+type P2PTypeP2P struct {
 	*api.RTMTypeSubtypeEnvelope
 
-	V  uint64 `json:"v"`
-	Ts uint64 `json:"ts"`
+	Version uint64 `json:"v"`
+	Ts      uint64 `json:"ts"`
 
-	Data json.RawMessage `json:"data,omitempty"`
+	Data    json.RawMessage  `json:"data,omitempty"`
+	Streams []*P2PDataStream `json:"streams"`
+}
+
+type P2PDataStream struct {
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`
+	Token   string `json:"token"`
+	Version uint64 `json:"v"`
 }

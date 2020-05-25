@@ -13,6 +13,7 @@ type TrackRecord struct {
 	track       *webrtc.Track
 	source      *UserRecord
 	connection  *ConnectionRecord
+	p2p         *P2PRecord
 	remove      bool
 	transceiver bool
 	rtcpCh      chan *RTCPRecord // Holds the track sender's rtcpCh.

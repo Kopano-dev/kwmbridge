@@ -15,6 +15,7 @@ import (
 
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
+	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v2"
 	"github.com/sasha-s/go-deadlock"
 	"github.com/sirupsen/logrus"
@@ -281,6 +282,15 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 			m := webrtc.MediaEngine{}
 			m.RegisterCodec(webrtc.NewRTPOpusCodec(webrtc.DefaultPayloadTypeOpus, 48000))
 			m.RegisterCodec(webrtc.NewRTPVP8CodecExt(webrtc.DefaultPayloadTypeVP8, 90000, rtcpfb, ""))
+			m.RegisterCodec(webrtc.NewRTPCodecExt(webrtc.RTPCodecTypeVideo,
+				webrtc.VP9,
+				90000,
+				0,
+				"",
+				webrtc.DefaultPayloadTypeVP9,
+				rtcpfb,
+				&codecs.VP9Payloader{},
+			))
 			for _, codec := range m.GetCodecsByKind(webrtc.RTPCodecTypeVideo) {
 				codec.RTPCodecCapability.RTCPFeedback = rtcpfb
 				connectionRecord.rtpPayloadTypes[codec.Name] = codec.PayloadType
@@ -668,7 +678,7 @@ func (connectionRecord *ConnectionRecord) createPeerConnection(rpcid string) (*P
 			localTrackRef = senderTrackAudio
 
 		} else {
-			logger.Warnln("unsupported remote track codec, track skipped")
+			trackLogger.Warnln("unsupported remote track codec, track skipped")
 			connectionRecord.Unlock()
 		}
 
@@ -1360,6 +1370,12 @@ func (connectionRecord *ConnectionRecord) setupDataChannel(pc *PeerConnection, d
 	})
 	//logger.Debugln("ddd setting up data channel")
 
+	connectionRecord.p2p.Lock()
+	defer connectionRecord.p2p.Unlock()
+	if err := connectionRecord.p2p.bind(dataChannel); err != nil {
+		return fmt.Errorf("failed to bind data channel to p2p: %w", err)
+	}
+
 	dataChannel.OnOpen(func() {
 		//logger.Debugln("ddd data channel open")
 	})
@@ -1371,7 +1387,7 @@ func (connectionRecord *ConnectionRecord) setupDataChannel(pc *PeerConnection, d
 		defer connectionRecord.Unlock()
 		if connectionRecord.pc == pc {
 			connectionRecord.reset(channel.sfu.wsCtx)
-			connectionRecord.p2p.handleClose(pc, dataChannel)
+			//connectionRecord.p2p.handleClose(pc, dataChannel)
 		}
 	})
 	dataChannel.OnError(func(dataChannelErr error) {
@@ -1379,8 +1395,8 @@ func (connectionRecord *ConnectionRecord) setupDataChannel(pc *PeerConnection, d
 	})
 	dataChannel.OnMessage(func(raw webrtc.DataChannelMessage) {
 		if raw.IsString {
-			logger.WithField("message", string(raw.Data)).Debugln("ddd data channel sctp text message")
-			connectionRecord.p2p.handleData(pc, dataChannel, raw)
+			//logger.WithField("message", string(raw.Data)).Debugln("ddd data channel sctp text message")
+			connectionRecord.p2p.handleData(dataChannel, raw)
 		} else {
 			logger.WithField("size", len(raw.Data)).Warnln("ddd data channel sctp binary message, ignored")
 		}

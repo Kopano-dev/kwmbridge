@@ -244,6 +244,8 @@ type ChannelConnectionResource struct {
 	RTPPayloadTypes map[string]uint8 `json:"rtpPayloadTypes"`
 
 	JitterBuffer interface{} `json:"jitterBuffer"`
+
+	P2p *P2PControllerResource `json:"p2p"`
 }
 
 func NewChannelConnectionResource(key string, connectionRecord *ConnectionRecord) *ChannelConnectionResource {
@@ -281,6 +283,8 @@ func NewChannelConnectionResource(key string, connectionRecord *ConnectionRecord
 		RTPPayloadTypes: connectionRecord.rtpPayloadTypes,
 
 		JitterBuffer: NewJitterBufferResource(connectionRecord.jitterBuffer),
+
+		P2p: NewP2PControllerResource(connectionRecord.p2p),
 	}
 
 	for key, track := range connectionRecord.tracks {
@@ -437,4 +441,153 @@ type JitterBufferBufferResource struct {
 
 	LostRate  float64 `json:"lostRate"`
 	Bandwidth uint64  `json:"bandwidth"`
+}
+
+type P2PControllerResource struct {
+	Callbacks map[string]interface{} `json:"callbacks"`
+	Streams   map[string]interface{} `json:"streams"`
+	Pending   map[string]interface{} `json:"pending"`
+}
+
+func NewP2PControllerResource(controller *P2PController) *P2PControllerResource {
+	if controller == nil {
+		return nil
+	}
+
+	callbacks := make(map[string]interface{})
+	streams := make(map[string]interface{})
+	pending := make(map[string]interface{})
+
+	controller.callbacks.IterCb(func(key string, v interface{}) {
+		callbacks[key] = NewP2PRecordResource(key, v.(*P2PRecord))
+	})
+	for key, record := range controller.streams {
+		streams[key] = NewStreamRecordResource(key, record)
+	}
+	for key, record := range controller.pending {
+		pending[key] = NewStreamRecordResource(key, record)
+	}
+
+	return &P2PControllerResource{
+		Callbacks: callbacks,
+		Streams:   streams,
+		Pending:   pending,
+	}
+}
+
+type P2PRecordResource struct {
+	Key string `json:"key"`
+
+	ID    string `json:"id"`
+	Token string `json:"token"`
+	RPCID string `json:"rpcid"`
+
+	PeerConnection *ConnectionPeerConnectionResource `json:"peerConnection"`
+	PCID           string                            `json:"pcid"`
+	State          string                            `json:"state"`
+
+	PendingCandidatesCount uint64 `json:"pendingCandidatesCount"`
+
+	HasQueuedNegotiation bool `json:"hasQueuedNegotiation"`
+	IsNegotiating        bool `json:"isNegotiating"`
+
+	GUID string `json:"guid"`
+
+	Tracks    map[uint32]interface{} `json:"tracks"`
+	Senders   map[uint32]interface{} `json:"senders"`
+	Receivers map[uint32]interface{} `json:"receivers"`
+	Pending   map[uint32]interface{} `json:"pending"`
+
+	RTPPayloadTypes map[string]uint8 `json:"rtpPayloadTypes"`
+
+	JitterBuffer interface{} `json:"jitterBuffer"`
+
+	P2p *P2PControllerResource `json:"p2p"`
+}
+
+func NewP2PRecordResource(key string, p2pRecord *P2PRecord) *P2PRecordResource {
+	if p2pRecord == nil {
+		return nil
+	}
+
+	resource := &P2PRecordResource{
+		Key: key,
+
+		ID:    p2pRecord.id,
+		Token: p2pRecord.token,
+		RPCID: p2pRecord.rpcid,
+
+		PeerConnection: NewConnectionPeerConnectionResource(p2pRecord.pc),
+		PCID:           p2pRecord.pcid,
+
+		PendingCandidatesCount: uint64(len(p2pRecord.pendingCandidates)),
+
+		HasQueuedNegotiation: p2pRecord.queuedNegotiation,
+		IsNegotiating:        p2pRecord.isNegotiating,
+
+		GUID: p2pRecord.guid,
+
+		Tracks:    make(map[uint32]interface{}),
+		Senders:   make(map[uint32]interface{}),
+		Receivers: make(map[uint32]interface{}),
+		Pending:   make(map[uint32]interface{}),
+
+		RTPPayloadTypes: p2pRecord.rtpPayloadTypes,
+
+		JitterBuffer: NewJitterBufferResource(p2pRecord.jitterBuffer),
+	}
+
+	for key, track := range p2pRecord.tracks {
+		resource.Tracks[key] = NewConnectionTrackResource(track)
+	}
+	for key, rtpSender := range p2pRecord.senders {
+		resource.Senders[key] = &ConnectionRTPTransceiverStateResource{
+			DTLSTransport: NewDTLSTransportResource(rtpSender.Transport()),
+			Track:         NewConnectionTrackResource(rtpSender.Track()),
+		}
+		rtpSender.Transport().State()
+	}
+	for key, rtpReceiver := range p2pRecord.receivers {
+		resource.Receivers[key] = &ConnectionRTPTransceiverStateResource{
+			DTLSTransport: NewDTLSTransportResource(rtpReceiver.Transport()),
+			Track:         NewConnectionTrackResource(rtpReceiver.Track()),
+		}
+	}
+	for key, pending := range p2pRecord.pending {
+		resource.Pending[key] = &ConnectionTrackRecordResource{
+			Connection:      NewChannelConnectionResource(string(key), pending.connection),
+			Source:          NewChannelUserResource(string(key), pending.source),
+			Track:           NewConnectionTrackResource(pending.track),
+			IsRemove:        pending.remove,
+			WithTransceiver: pending.transceiver,
+		}
+	}
+
+	return resource
+}
+
+type StreamRecordResource struct {
+	Key string `json:"key"`
+
+	Connection *P2PRecordResource `json:"connection"`
+
+	ID    string `json:"id"`
+	Kind  string `json:"kind"`
+	Token string `json:"token"`
+}
+
+func NewStreamRecordResource(key string, streamRecord *StreamRecord) *StreamRecordResource {
+	if streamRecord == nil {
+		return nil
+	}
+
+	return &StreamRecordResource{
+		Key: key,
+
+		Connection: NewP2PRecordResource("", streamRecord.connection),
+
+		ID:    streamRecord.id,
+		Kind:  streamRecord.kind,
+		Token: streamRecord.token,
+	}
 }

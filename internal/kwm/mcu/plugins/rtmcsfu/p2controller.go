@@ -7,58 +7,88 @@ package rtmcsfu
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"sync"
 
 	"github.com/orcaman/concurrent-map"
 	"github.com/pion/webrtc/v2"
+	"github.com/sasha-s/go-deadlock"
 	"github.com/sirupsen/logrus"
 	"stash.kopano.io/kwm/kwmbridge/internal/kwm"
 	api "stash.kopano.io/kwm/kwmserver/signaling/api-v1"
 )
 
 type P2PController struct {
-	sync.RWMutex
+	deadlock.RWMutex
 
 	parent *ConnectionRecord
 	logger logrus.FieldLogger
 
-	// Holds p2p connection records.
-	connections cmap.ConcurrentMap
+	handshake   *kwm.P2PTypeP2P
+	dataChannel *webrtc.DataChannel
+
+	callbacks cmap.ConcurrentMap // Hols p2p connection records, by token.
+
+	streams map[string]*StreamRecord // Holds stream records, by id
+	pending map[string]*StreamRecord // Holds stream records, by id
 }
 
 func NewP2PController(parent *ConnectionRecord) *P2PController {
-	return &P2PController{
+	controller := &P2PController{
 		parent: parent,
 		logger: parent.owner.channel.logger,
 
-		connections: cmap.New(),
+		callbacks: cmap.New(),
+		streams:   make(map[string]*StreamRecord),
+		pending:   make(map[string]*StreamRecord),
 	}
+
+	return controller
+}
+
+func (controller *P2PController) bind(dataChannel *webrtc.DataChannel) error {
+	controller.dataChannel = dataChannel
+
+	var added []*StreamRecord
+	for _, stream := range controller.pending {
+		added = append(added, stream)
+	}
+	controller.pending = make(map[string]*StreamRecord)
+	go func() {
+		controller.Lock()
+		defer controller.Unlock()
+		if controller.dataChannel == nil || controller.dataChannel != dataChannel {
+			// Datachannel has changed, do nothing.
+			return
+		}
+
+		err := controller.announceStreams(added, false)
+		if err != nil {
+			controller.logger.WithError(err).Errorln("qqq jjj p2p faild to announce pending streams on bind")
+		}
+	}()
+
+	return nil
 }
 
 func (controller *P2PController) reset() {
+	controller.handshake = nil
+	controller.dataChannel = nil
+
+	controller.callbacks = cmap.New()
+	controller.streams = make(map[string]*StreamRecord)
+	controller.pending = make(map[string]*StreamRecord)
 }
 
-func (controller *P2PController) handleClose(pc *PeerConnection, dataChannel *webrtc.DataChannel) error {
-	record, exists := controller.connections.Pop(pc.ID())
-	if !exists {
-		return nil
+func (controller *P2PController) handleData(dataChannel *webrtc.DataChannel, raw webrtc.DataChannelMessage) {
+	controller.RLock()
+	if controller.dataChannel != dataChannel {
+		// Ignore when data channel is changed.
+		controller.RUnlock()
+		return
 	}
+	controller.RUnlock()
 
-	p2pRecord := record.(*P2PRecord)
-
-	p2pRecord.Lock()
-	defer p2pRecord.Unlock()
-
-	if p2pRecord.dataChannel != dataChannel {
-		// Ignore when data channel does not match.
-		return nil
-	}
-
-	return p2pRecord.reset()
-}
-
-func (controller *P2PController) handleData(pc *PeerConnection, dataChannel *webrtc.DataChannel, raw webrtc.DataChannelMessage) {
 	message := &p2pMessage{}
 	err := json.Unmarshal(raw.Data, message)
 	if err != nil {
@@ -66,25 +96,31 @@ func (controller *P2PController) handleData(pc *PeerConnection, dataChannel *web
 		return
 	}
 
-	controller.logger.Debugln("lll p2p handle data", pc.ID())
+	//controller.logger.Debugln("lll p2p handle data", dataChannel.ID(), message.RTMTypeEnvelope.Type)
 
-	record := controller.connections.Upsert(pc.ID(), nil, func(ok bool, p2pRecord interface{}, n interface{}) interface{} {
-		if !ok {
-			p2pRecordImpl := NewP2PRecord(controller, dataChannel)
-			controller.logger.WithField("pcid", pc.ID()).Debugln("lll new p2p")
-
-			p2pRecord = p2pRecordImpl
-		}
-		return p2pRecord
-	})
-	p2pRecord := record.(*P2PRecord)
-
-	switch message.RTMTypeSubtypeEnvelope.Type {
+	switch message.RTMTypeEnvelope.Type {
 	case "p2p":
-		err = controller.handleP2PMessage(message, p2pRecord)
+		m := &kwm.P2PTypeP2P{}
+		if unmarshalErr := json.Unmarshal(raw.Data, m); unmarshalErr != nil {
+			controller.logger.WithError(unmarshalErr).Errorln("sfu data channel p2p message parse error")
+			return
+		}
+
+		controller.Lock()
+		err = controller.handleP2PMessage(m)
+		controller.Unlock()
+
+	case "webrtc":
+		m := &api.RTMTypeWebRTC{}
+		if unmarshalErr := json.Unmarshal(raw.Data, m); unmarshalErr != nil {
+			controller.logger.WithError(unmarshalErr).Errorln("sfu data channel p2p message parse error")
+			return
+		}
+
+		err = controller.handleWebRTCMessage(m)
 
 	default:
-		controller.logger.WithField("type", message.RTMTypeSubtypeEnvelope.Type).Warnln("sfu received unknown data channel message type")
+		controller.logger.WithField("type", message.RTMTypeEnvelope.Type).Warnln("sfu received unknown data channel message type")
 		return
 	}
 
@@ -93,46 +129,49 @@ func (controller *P2PController) handleData(pc *PeerConnection, dataChannel *web
 	}
 }
 
-func (controller *P2PController) handleP2PMessage(message *p2pMessage, p2pRecord *P2PRecord) error {
-	p2pRecord.Lock()
-	defer p2pRecord.Unlock()
+func (controller *P2PController) handleP2PMessage(message *kwm.P2PTypeP2P) error {
+	//controller.logger.Debugln("lll p2p handle p2p", message, message.Version)
 
 	switch message.RTMTypeSubtypeEnvelope.Subtype {
 	case "handshake":
 
-		if p2pRecord.handshake != nil {
+		if controller.handshake != nil {
 			controller.logger.Warnln("p2p connection received handshake, but already has handshaked")
 			return nil
 		}
+		controller.handshake = message
 
-		p2pRecord.handshake = message.P2PTypeHandshake
-
-		reply := &kwm.P2PTypeHandshake{
+		reply := &kwm.P2PTypeP2P{
 			RTMTypeSubtypeEnvelope: &api.RTMTypeSubtypeEnvelope{
 				Type:    "p2p",
 				Subtype: "handshake_reply",
 			},
 
-			Ts: message.P2PTypeHandshake.Ts,
-			V:  message.P2PTypeHandshake.V,
+			Ts:      message.Ts,
+			Version: message.Version,
 		}
-		if err := controller.sendDataChannelPayload(p2pRecord, reply); err != nil {
+		if err := controller.sendDataChannelPayload(reply); err != nil {
 			return fmt.Errorf("p2p connection failed to send handshake reply: %w", err)
 		}
 
-		if len(message.P2PTypeHandshake.Data) > 0 {
-			extra := &p2pMessage{}
-			err := json.Unmarshal(message.P2PTypeHandshake.Data, extra)
+		if len(message.Data) > 0 {
+			extra := &kwm.P2PTypeP2P{}
+			err := json.Unmarshal(message.Data, extra)
 			if err != nil {
 				return fmt.Errorf("p2p connection received handshake with invalid data: %w", err)
 			}
 
 			if extra.RTMTypeSubtypeEnvelope.Type == "p2p" && extra.RTMTypeSubtypeEnvelope.Subtype != "handshake" {
-				err = controller.handleP2PMessage(extra, p2pRecord)
+				err = controller.handleP2PMessage(extra)
 				if err != nil {
 					return fmt.Errorf("p2p connection failed to process handshake data: %w", err)
 				}
 			}
+		}
+
+	case "announce_streams":
+		if err := controller.handleAnnounceStreams(message); err != nil {
+			return fmt.Errorf("p2p failed to process announce streams: %w", err)
 		}
 
 	default:
@@ -143,16 +182,194 @@ func (controller *P2PController) handleP2PMessage(message *p2pMessage, p2pRecord
 	return nil
 }
 
-func (controller *P2PController) sendDataChannelPayload(p2pRecord *P2PRecord, payload interface{}) error {
-	dataChannel := p2pRecord.dataChannel
+func (controller *P2PController) handleAnnounceStreams(message *kwm.P2PTypeP2P) error {
+	status := make(map[string]bool)
+	added := []*StreamRecord{}
+	removed := []*StreamRecord{}
+
+	channel := controller.parent.owner.channel
+
+	for _, streamAnnouncement := range message.Streams {
+		if streamRecord, found := controller.streams[streamAnnouncement.ID]; found {
+			// Already have this stream.
+			if streamRecord.kind != streamAnnouncement.Kind {
+				// Ignore changes of stream kind.
+				continue
+			}
+			if streamRecord.token != streamAnnouncement.Token {
+				// Update token.
+				// TODO(longsleep): Remove/re add callback
+				// TODO(longsleep): locking
+				streamRecord.token = streamAnnouncement.Token
+				streamRecord.reset()
+			}
+			status[streamAnnouncement.ID] = false
+		} else {
+			// New stream
+			status[streamAnnouncement.ID] = true
+			streamRecordImpl := NewStreamRecord(controller)
+			streamRecordImpl.id = streamAnnouncement.ID
+			streamRecordImpl.kind = streamAnnouncement.Kind
+			streamRecordImpl.token = streamAnnouncement.Token
+			added = append(added, streamRecordImpl)
+		}
+	}
+
+	for id, streamRecord := range controller.streams {
+		if _, found := status[id]; !found {
+			delete(controller.streams, id)
+			removed = append(removed, streamRecord)
+			// Remove connections for remove streams.
+			streamRecord.reset()
+		}
+	}
+
+	if len(added) == 0 && len(removed) == 0 {
+		// Nothing further todo.
+		return nil
+	}
+
+	controller.logger.Debugln("qqq lll p2p streams have changed", len(added), len(removed), controller.parent.initiator)
+
+	source := controller.parent.owner.id
+	logger := controller.logger.WithField("source", source)
+
+	for _, streamRecord := range added {
+		// Create record which receives the stream (incoming to sfu)
+		p2pRecord := NewP2PRecord(controller.parent.ctx, controller, controller.parent, controller.dataChannel, streamRecord.id, streamRecord.token, nil)
+		logger = logger.WithField("id", streamRecord.id)
+		logger.WithField("id", streamRecord.id).Debugln("qqq lll new p2p")
+		streamRecord.connection = p2pRecord
+		controller.streams[streamRecord.id] = streamRecord
+		if set := controller.callbacks.SetIfAbsent(streamRecord.token, p2pRecord); !set {
+			controller.logger.Warnln("qqq lll p2p ignored stream announcement, token already set")
+			continue
+		}
+		// Negotiate the record which get sent to (outgoing from sfu)
+		if err := p2pRecord.negotiate(true); err != nil {
+			controller.logger.WithError(err).Debugln("qqq lll p2p failed to trigger negotiate")
+			continue
+		}
+	}
+
+	// Go through all connected channels, and announce stream to other peers.
+	for item := range channel.connections.IterBuffered() {
+		func() {
+			target := item.Key
+			record := item.Val
+
+			logger.Debugln("qqq lll p2p sfu selecting", target, source)
+			if target == source {
+				// Do not publish to self.
+				return
+			}
+
+			targetRecord := record.(*UserRecord)
+			if targetRecord.isClosed() {
+				// Do not publish to closed.
+				return
+			}
+
+			l := logger.WithField("target", target)
+
+			l.Debugln("qqq lll p2p sfu stream announce target")
+
+			var ok bool
+			record, ok = targetRecord.connections.Get(source)
+			if !ok {
+				l.Warnln("qqq lll p2p sfu updating announce target does not have source connection")
+				return
+			}
+			connectionRecord := record.(*ConnectionRecord)
+			l.Debugln("qqq lll p2p sfu using connection", connectionRecord.id)
+
+			targetController := connectionRecord.p2p
+
+			if announceErr := targetController.announceStreams(added, true); announceErr != nil {
+				l.WithError(announceErr).Errorln("qqq lll p2p announce stream failed")
+				return
+			}
+		}()
+	}
+
+	return nil
+}
+
+func (controller *P2PController) handleWebRTCMessage(message *api.RTMTypeWebRTC) error {
+	// TODO(longsleep): Compare message `v` field with our implementation version.
+	var err error
+
+	switch message.Subtype {
+	case api.RTMSubtypeNameWebRTCSignal:
+		record, _ := controller.callbacks.Get(message.Source)
+		if record == nil {
+			controller.logger.WithField("source", message.Source).Warnln("lll p2p got signal but has no callback")
+			return errors.New("no callback")
+		}
+		p2pRecord := record.(*P2PRecord)
+		if signalErr := p2pRecord.handleWebRTCSignalMessage(message); signalErr != nil {
+			controller.logger.WithError(signalErr).WithField("source", message.Source).Warnln("lll p2p error while signal processing")
+		}
+
+	default:
+		controller.logger.WithField("subtype", message.Subtype).Warnln("lll p2p received unknown webrtc message sub type")
+	}
+
+	return err
+}
+
+func (controller *P2PController) announceStreams(streams []*StreamRecord, force bool) error {
+	announce := make([]*kwm.P2PDataStream, 0)
+
+	// Create record which sends out the stream (outgoing from sfu)
+	for _, streamRecord := range streams {
+		if controller.dataChannel == nil {
+			// Add as pending when no data channel exists yet.
+			controller.pending[streamRecord.id] = streamRecord
+			continue
+		}
+
+		p2pRecord := NewP2PRecord(controller.parent.ctx, controller, controller.parent, controller.dataChannel, streamRecord.id, streamRecord.token, streamRecord.connection)
+		controller.logger.WithField("id", streamRecord.id).Debugln("lll p2p sfu new announce stream")
+		if set := controller.callbacks.SetIfAbsent(streamRecord.token, p2pRecord); !set {
+			controller.logger.Warnln("lll p2p sfu ignored stream announcement, token already set")
+			continue
+		}
+
+		announce = append(announce, &kwm.P2PDataStream{
+			ID:      streamRecord.id,
+			Kind:    streamRecord.kind,
+			Token:   streamRecord.token,
+			Version: 1, // TODO(longsleep): Move to constant.
+		})
+	}
+
+	if !force && len(announce) == 0 {
+		return nil
+	}
+
+	// Send out announcement.
+	message := &kwm.P2PTypeP2P{
+		RTMTypeSubtypeEnvelope: &api.RTMTypeSubtypeEnvelope{
+			Type:    "p2p",
+			Subtype: "announce_streams",
+		},
+
+		Version: WebRTCPayloadVersion,
+		Streams: announce,
+	}
+	return controller.sendDataChannelPayload(message)
+}
+
+func (controller *P2PController) sendDataChannelPayload(payload interface{}) error {
+	dataChannel := controller.dataChannel
 
 	payloadBytes, err := json.MarshalIndent(payload, "", "\t")
 	if err != nil {
 		return fmt.Errorf("failed to marshal channel payload: %w", err)
 	}
 
-	controller.logger.Debugln("jjj send data channel payload", string(payloadBytes))
-
+	//controller.logger.WithField("message", string(payloadBytes)).Debugln("jjj send data channel payload")
 	err = dataChannel.SendText(string(payloadBytes))
 	if err != nil {
 		return fmt.Errorf("failed to send text payload via data channel: %w", err)
