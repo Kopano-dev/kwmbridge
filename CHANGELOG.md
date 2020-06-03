@@ -4,6 +4,29 @@
 
 
 
+## v0.1.0 (2020-05-25)
+
+- Implement screen sharing support
+- Use noop renegotiate instead of call to trigger connection
+- Add gears to easily enable SDP logging for debug
+- Update WebRTC stack to resolve Firefox recvonly
+- Disable wait on DTLS start before setting remote description
+- Optimize connection creation behavior
+- Allow default sender to be initiator
+- Only request target answer when received sdp
+- Add sdp logging (commented)
+- Update third party dependencies
+- Fix firefox recvonly offer support
+- Updat third party depdencies
+- Cure race condition when killing user
+- Improve one side close reconnect behavior
+- Reset target connection if track write fails
+- No longer close neeed negotiation channels
+- No longer always add transceiver to sender
+- Only use ICE-lite when enabled
+- Reset connection record on WebRTC signaling handling errors
+
+
 ## v0.0.7 (2020-05-11)
 
 - Make errors of channel signal and hangup non fatal
