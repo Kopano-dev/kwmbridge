@@ -1,11 +1,11 @@
-# Kopano Keb Meetings Bridge (kwmbridge)
+# Kopano Web Meetings Bridge (kwmbridge)
 
 This project implements a forwarding unit for kopano Web Meetings by connecting
 to the MCU API of Kopano Web Meetings Server.
 
 ## Quick start
 
-This is alpha software, you probably do not want to use this yet.
+This is beta software, use at your own risk.
 
 ## Build dependencies
 
