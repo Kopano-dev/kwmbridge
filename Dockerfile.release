@@ -1,0 +1,63 @@
+# Copyright 2020 Kopano and its licensors
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License, version 3 or
+# later, as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+FROM alpine:3.12
+LABEL maintainer="development@kopano.io"
+
+# Expose ports.
+EXPOSE 8779
+EXPOSE 6779
+
+# Version to include in this Docker image. Default to latest.
+ENV VERSION latest
+
+# Define basic environment variables.
+ENV EXE=kwmbridged
+ENV KWMBRIDGED_LISTEN=0.0.0.0:8779
+
+# Defaults which can be overwritten.
+ENV ARGS=""
+
+WORKDIR /var/lib/kwmbridged-docker
+
+# Copy Docker specific scripts and ensure they are executable.
+COPY \
+	scripts/docker-entrypoint.sh \
+	scripts/healthcheck.sh \
+	/usr/local/bin/
+RUN chmod 755 /usr/local/bin/*.sh
+
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
+
+# Download
+RUN apk add --no-cache \
+		ca-certificates=20191127-r3 \
+		curl=7.69.1-r0 \
+	&& curl -sSL https://download.kopano.io/community/kwmbridge:/kopano-kwmbridge-${VERSION}.tar.gz | \
+	tar -C /var/lib/kwmbridged-docker --strip 1 -vxzf - && \
+	mv ${EXE} /usr/local/bin/${EXE}
+
+# Run as nobody by default is always a good idea.
+USER nobody
+
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD [ \
+	"kwmbridged", \
+	"serve" \
+	]
+
+# Health check support is cool too.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s \
+	CMD healthcheck.sh --hostname="${KWMBRIDGED_LISTEN}" || exit 1
