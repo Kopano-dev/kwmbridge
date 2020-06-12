@@ -2,9 +2,13 @@
 
 ## Unreleased
 
+- Avoid sending to data channel when none is available
+- Add Dockerfile
+- Fix typos and add beta comment
+- Build with Go 1.14.4
 
 
-## v0.1.0 (2020-05-25)
+## v0.1.0 (2020-06-03)
 
 - Implement screen sharing support
 - Use noop renegotiate instead of call to trigger connection
