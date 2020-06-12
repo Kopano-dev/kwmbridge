@@ -363,6 +363,9 @@ func (controller *P2PController) announceStreams(streams []*StreamRecord, force 
 
 func (controller *P2PController) sendDataChannelPayload(payload interface{}) error {
 	dataChannel := controller.dataChannel
+	if dataChannel == nil {
+		return fmt.Errorf("no data channel")
+	}
 
 	payloadBytes, err := json.MarshalIndent(payload, "", "\t")
 	if err != nil {
