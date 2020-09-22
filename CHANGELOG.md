@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+
+
+## v0.1.1 (2020-09-22)
+
 - Avoid sending to data channel when none is available
 - Add Dockerfile
 - Fix typos and add beta comment
