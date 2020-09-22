@@ -4,6 +4,11 @@
 
 
 
+## v0.1.2 (2020-09-22)
+
+- Update Jenkins reporting plugin from checkstyle to recordIssues
+
+
 ## v0.1.1 (2020-09-22)
 
 - Avoid sending to data channel when none is available
