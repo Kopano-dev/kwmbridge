@@ -68,6 +68,16 @@ case "${1}" in
 			set -- "$@" --use-ice-udp-port-range="$ice_udp_port_range"
 		fi
 
+		if [ -n "$use_nat_1to1_ips" ]; then
+			for use_nat_1to1_ip in $use_nat_1to1_ips; do
+				set -- "$@" --use-nat-1to1-ip="$use_nat_1to1_ip"
+			done
+		fi
+
+		if [ -n "$use_nat_1to1_candidate_type" ]; then
+			set -- "$@" --use-nat-1to1-candidate-type="$use_nat_1to1_candidate_type"
+		fi
+
 		if [ -n "$log_level" ]; then
 			set -- "$@" --log-level="$log_level"
 		fi

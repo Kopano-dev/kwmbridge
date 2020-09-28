@@ -148,6 +148,18 @@ func New(attach *kwm.MCUTypeContainer, ws *websocket.Conn, options *mcu.Options)
 		}
 	}
 
+	if len(options.Config.NAT1To1IPs) > 0 {
+		logger.WithFields(logrus.Fields{
+			"ips":           options.Config.NAT1To1IPs,
+			"candidateType": options.Config.NAT1To1CandidateType,
+		}).Debugln("using external IP addresses for 1:1 (D)NAT")
+		if candidateType, err := webrtc.NewICECandidateType(options.Config.NAT1To1CandidateType); err != nil {
+			return nil, fmt.Errorf("failed to parse NAT1to1 ICE candidate type: %w", err)
+		} else {
+			s.SetNAT1To1IPs(options.Config.NAT1To1IPs, candidateType)
+		}
+	}
+
 	router := mux.NewRouter()
 
 	// TODO(longsleep): Set more settings.

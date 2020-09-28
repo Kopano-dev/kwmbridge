@@ -35,4 +35,6 @@ type Config struct {
 	ICENetworkTypes          []string
 	ICEEphemeralUDPPortRange [2]uint16
 	ICELite                  bool
+	NAT1To1IPs               []string
+	NAT1To1CandidateType     string
 }

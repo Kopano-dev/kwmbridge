@@ -64,6 +64,8 @@ func commandServe() *cobra.Command {
 	serveCmd.Flags().String("use-ice-udp-port-range", "", "Range of ephemeral ports that ICE UDP connections can allocate from in format min:max, if not set its not limited")
 	serveCmd.Flags().BoolVar(&detectDeadlocks, "with-deadlock-detector", detectDeadlocks, "Enable deadlock detection")
 	serveCmd.Flags().Bool("ice-lite", false, "Enable ICE Lite")
+	serveCmd.Flags().StringArray("use-nat-1to1-ip", nil, "External IP address for 1:1 (D)NAT")
+	serveCmd.Flags().String("use-nat-1to1-candidate-type", "host", "Type of candidate to use use with the given external 1:1 (D)NAT addresses (either host or srflx)")
 
 	return serveCmd
 }
@@ -165,6 +167,8 @@ func serve(cmd *cobra.Command, args []string) error {
 		}).Infoln("limiting ICE port range")
 	}
 	config.ICELite, _ = cmd.Flags().GetBool("ice-lite")
+	config.NAT1To1IPs, _ = cmd.Flags().GetStringArray("use-nat-1to1-ip")
+	config.NAT1To1CandidateType, _ = cmd.Flags().GetString("use-nat-1to1-candidate-type")
 
 	var tlsClientConfig *tls.Config
 	tlsInsecureSkipVerify, _ := cmd.Flags().GetBool("insecure")
