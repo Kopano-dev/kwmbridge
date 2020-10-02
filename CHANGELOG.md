@@ -4,6 +4,12 @@
 
 
 
+## v0.1.3 (2020-09-28)
+
+- Add support to run kwmbridged behind 1to1 (D)NAT
+- Update curl and ca-certificate to latest version
+
+
 ## v0.1.2 (2020-09-22)
 
 - Update Jenkins reporting plugin from checkstyle to recordIssues
